@@ -11,14 +11,20 @@ export interface LevelData {
 
 const cache: Partial<Record<Level, LevelData>> = {}
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status} ${url}`)
+  }
+  return response.json()
+}
+
 export async function loadLevel(level: Level): Promise<LevelData> {
   if (cache[level]) return cache[level]!
-  const [nodesRes, edgesRes] = await Promise.all([
-    fetch(`/data/galaxy/nodes-${level}.json`),
-    fetch(`/data/galaxy/edges-${level}.json`),
+  const [nodes, rawEdges] = await Promise.all([
+    fetchJson<GalaxyNode[]>(`/api/graph/${level}/nodes`),
+    fetchJson<RawEdge[]>(`/api/graph/${level}/edges`),
   ])
-  const nodes: GalaxyNode[] = await nodesRes.json()
-  const rawEdges: RawEdge[] = await edgesRes.json()
   const edges: GalaxyEdge[] = rawEdges.map(e => ({
     source: e.source,
     target: e.target,
@@ -29,6 +35,5 @@ export async function loadLevel(level: Level): Promise<LevelData> {
 }
 
 export async function loadSearchIndex(): Promise<SearchEntry[]> {
-  const res = await fetch('/data/search/persons-index.json')
-  return res.json()
+  return fetchJson<SearchEntry[]>('/api/search/persons')
 }

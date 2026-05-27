@@ -38,3 +38,18 @@ python3 -m venv .venv
 data/processed/staff_galaxy.duckdb
 reports/data-audit.md
 ```
+
+## 本地应用
+
+运行 DuckDB 后端 API：
+
+```bash
+.venv/bin/uvicorn staff_galaxy.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+另开一个终端运行前端：
+
+```bash
+cd frontend
+npm run dev -- --host 127.0.0.1
+```
