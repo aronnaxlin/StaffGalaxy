@@ -2,7 +2,7 @@ import type { GalaxyNode, GalaxyEdge, SearchEntry } from '../types'
 
 interface RawEdge { source: string; target: string; w: number }
 
-export type Level = 'l0' | 'l1'
+export type Level = 'global' | 'l0' | 'l1'
 
 export interface LevelData {
   nodes: GalaxyNode[]

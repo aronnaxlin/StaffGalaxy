@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 DEFAULT_DB_PATH = Path("data/processed/staff_galaxy.duckdb")
 
 LEVELS: dict[str, dict[str, int]] = {
+    "global": {"min_degree": 0, "min_shared": 12},
     "l0": {"min_degree": 150, "min_shared": 1},
     "l1": {"min_degree": 50, "min_shared": 3},
 }

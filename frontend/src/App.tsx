@@ -1,25 +1,41 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Graph from 'graphology'
 import { loadLevel, loadSearchIndex, type Level } from './data/loader'
-import { buildGraph } from './data/graphBuilder'
+import { buildGraph, swapGraph } from './data/graphBuilder'
 import { GalaxyView } from './components/GalaxyView'
+import { CosmosGalaxyView } from './components/CosmosGalaxyView'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
 import type { SearchEntry } from './types'
 
 const PANEL_NEIGHBOR_LIMIT = 120
+type RendererMode = 'sigma' | 'cosmos'
+
+function initialRendererMode(): RendererMode {
+  return new URLSearchParams(window.location.search).get('renderer') === 'cosmos'
+    ? 'cosmos'
+    : 'sigma'
+}
+
+function initialGraphLevel(mode: RendererMode): Level {
+  return mode === 'cosmos' ? 'global' : 'l0'
+}
 
 export default function App() {
+  const [initialMode] = useState<RendererMode>(initialRendererMode)
   const [graph, setGraph] = useState<Graph | null>(null)
-  const [level, setLevel] = useState<Level>('l0')
+  const [level, setLevel] = useState<Level>(() => initialGraphLevel(initialMode))
+  const [rendererMode, setRendererMode] = useState<RendererMode>(initialMode)
   const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const navigateToNodeRef = useRef<((nodeId: string) => void) | null>(null)
 
   useEffect(() => {
-    Promise.all([loadLevel('l0'), loadSearchIndex()]).then(([data, index]) => {
-      setGraph(buildGraph(data, 'l0'))
+    const firstLevel = initialGraphLevel(initialMode)
+    Promise.all([loadLevel(firstLevel), loadSearchIndex()]).then(([data, index]) => {
+      setGraph(buildGraph(data, firstLevel))
+      setLevel(firstLevel)
       setSearchEntries(index)
       setLoading(false)
 
@@ -27,7 +43,7 @@ export default function App() {
         void loadLevel('l1').catch(() => undefined)
       }, 500)
     })
-  }, [])
+  }, [initialMode])
 
   const handleNodeClick = useCallback((nodeId: string) => {
     setSelectedNode(prev => (prev === nodeId ? null : nodeId))
@@ -37,6 +53,21 @@ export default function App() {
     setSelectedNode(id)
     navigateToNodeRef.current?.(id)
   }, [])
+
+  const handleRendererModeChange = useCallback(async (mode: RendererMode) => {
+    setRendererMode(mode)
+    const url = new URL(window.location.href)
+    if (mode === 'cosmos') url.searchParams.set('renderer', 'cosmos')
+    else url.searchParams.delete('renderer')
+    window.history.replaceState(null, '', url)
+
+    if (!graph) return
+    const nextLevel = initialGraphLevel(mode)
+    const data = await loadLevel(nextLevel)
+    swapGraph(graph, data, nextLevel)
+    setLevel(nextLevel)
+    setSelectedNode(null)
+  }, [graph])
 
   const selectedNodeAttrs = selectedNode && graph?.hasNode(selectedNode)
     ? graph.getNodeAttributes(selectedNode)
@@ -71,14 +102,27 @@ export default function App() {
   return (
     <div className="relative w-full h-full">
       {graph && (
-        <GalaxyView
-          graph={graph}
-          onNodeClick={handleNodeClick}
-          navigateToNodeRef={navigateToNodeRef}
-          level={level}
-          onLevelChange={setLevel}
-          selectedNode={selectedNode}
-        />
+        rendererMode === 'cosmos'
+          ? (
+            <CosmosGalaxyView
+              graph={graph}
+              onNodeClick={handleNodeClick}
+              navigateToNodeRef={navigateToNodeRef}
+              level={level}
+              onLevelChange={setLevel}
+              selectedNode={selectedNode}
+            />
+          )
+          : (
+            <GalaxyView
+              graph={graph}
+              onNodeClick={handleNodeClick}
+              navigateToNodeRef={navigateToNodeRef}
+              level={level}
+              onLevelChange={setLevel}
+              selectedNode={selectedNode}
+            />
+          )
       )}
 
       <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
@@ -88,8 +132,24 @@ export default function App() {
         <div className="pointer-events-auto">
           <SearchBar entries={searchEntries} onSelect={handleSearchSelect} />
         </div>
+        <div className="pointer-events-auto flex items-center rounded border border-slate-700/70 bg-black/35 p-1 text-xs text-slate-400 backdrop-blur">
+          <button
+            type="button"
+            onClick={() => handleRendererModeChange('sigma')}
+            className={`px-2 py-1 ${rendererMode === 'sigma' ? 'bg-slate-700 text-slate-100' : 'hover:text-slate-200'}`}
+          >
+            Sigma
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRendererModeChange('cosmos')}
+            className={`px-2 py-1 ${rendererMode === 'cosmos' ? 'bg-cyan-800/80 text-cyan-100' : 'hover:text-slate-200'}`}
+          >
+            Cosmos
+          </button>
+        </div>
         <div className="text-xs text-slate-600 tracking-wider ml-auto">
-          {level === 'l0' ? '全局视图' : '细节视图'}
+          {level === 'global' ? '全量星系' : level === 'l0' ? '核心视图' : '细节视图'}
         </div>
       </div>
 
