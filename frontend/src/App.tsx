@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Graph from 'graphology'
-import { loadLevel, loadSearchIndex, type Level } from './data/loader'
+import { loadLevel, loadPersonGalaxy, loadSearchIndex, type Level } from './data/loader'
 import { buildGraph, swapGraph } from './data/graphBuilder'
 import { GalaxyView } from './components/GalaxyView'
 import { CosmosGalaxyView } from './components/CosmosGalaxyView'
@@ -9,6 +9,7 @@ import { NodePanel } from './components/NodePanel'
 import type { SearchEntry } from './types'
 
 const PANEL_NEIGHBOR_LIMIT = 120
+const DEFAULT_PERSON_ID = '94'
 type RendererMode = 'sigma' | 'cosmos'
 
 function initialRendererMode(): RendererMode {
@@ -18,7 +19,11 @@ function initialRendererMode(): RendererMode {
 }
 
 function initialGraphLevel(mode: RendererMode): Level {
-  return mode === 'cosmos' ? 'global' : 'l0'
+  return mode === 'cosmos' ? 'person' : 'l0'
+}
+
+async function loadGraphData(level: Level, personId = DEFAULT_PERSON_ID) {
+  return level === 'person' ? loadPersonGalaxy(personId) : loadLevel(level)
 }
 
 export default function App() {
@@ -33,9 +38,10 @@ export default function App() {
 
   useEffect(() => {
     const firstLevel = initialGraphLevel(initialMode)
-    Promise.all([loadLevel(firstLevel), loadSearchIndex()]).then(([data, index]) => {
+    Promise.all([loadGraphData(firstLevel), loadSearchIndex()]).then(([data, index]) => {
       setGraph(buildGraph(data, firstLevel))
       setLevel(firstLevel)
+      if (firstLevel === 'person') setSelectedNode(DEFAULT_PERSON_ID)
       setSearchEntries(index)
       setLoading(false)
 
@@ -45,14 +51,30 @@ export default function App() {
     })
   }, [initialMode])
 
+  const loadPersonView = useCallback(async (personId: string) => {
+    if (!graph) return
+    const data = await loadPersonGalaxy(personId)
+    swapGraph(graph, data, 'person')
+    setLevel('person')
+    setSelectedNode(personId)
+  }, [graph])
+
   const handleNodeClick = useCallback((nodeId: string) => {
+    if (rendererMode === 'cosmos') {
+      void loadPersonView(nodeId)
+      return
+    }
     setSelectedNode(prev => (prev === nodeId ? null : nodeId))
-  }, [])
+  }, [loadPersonView, rendererMode])
 
   const handleSearchSelect = useCallback((id: string) => {
+    if (rendererMode === 'cosmos') {
+      void loadPersonView(id)
+      return
+    }
     setSelectedNode(id)
     navigateToNodeRef.current?.(id)
-  }, [])
+  }, [loadPersonView, rendererMode])
 
   const handleRendererModeChange = useCallback(async (mode: RendererMode) => {
     setRendererMode(mode)
@@ -63,10 +85,10 @@ export default function App() {
 
     if (!graph) return
     const nextLevel = initialGraphLevel(mode)
-    const data = await loadLevel(nextLevel)
+    const data = await loadGraphData(nextLevel)
     swapGraph(graph, data, nextLevel)
     setLevel(nextLevel)
-    setSelectedNode(null)
+    setSelectedNode(nextLevel === 'person' ? DEFAULT_PERSON_ID : null)
   }, [graph])
 
   const selectedNodeAttrs = selectedNode && graph?.hasNode(selectedNode)
@@ -149,7 +171,7 @@ export default function App() {
           </button>
         </div>
         <div className="text-xs text-slate-600 tracking-wider ml-auto">
-          {level === 'global' ? '全量星系' : level === 'l0' ? '核心视图' : '细节视图'}
+          {level === 'person' ? '个人星系' : level === 'global' ? '全量星系' : level === 'l0' ? '核心视图' : '细节视图'}
         </div>
       </div>
 

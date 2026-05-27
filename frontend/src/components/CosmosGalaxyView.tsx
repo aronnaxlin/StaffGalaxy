@@ -40,6 +40,8 @@ function readRgb(value: unknown): [number, number, number] {
 }
 
 function minSharedForZoom(level: Level, zoom: number): number {
+  if (level === 'person') return 1
+
   if (level === 'global') {
     if (zoom > 0.9) return 40
     if (zoom > 0.65) return 24
@@ -51,7 +53,7 @@ function minSharedForZoom(level: Level, zoom: number): number {
   return 12
 }
 
-function buildEdgeArrays(edgeRecords: EdgeRecord[], minShared: number) {
+function buildEdgeArrays(edgeRecords: EdgeRecord[], minShared: number, level: Level) {
   const visibleEdges = edgeRecords.filter(edge => edge.sharedWorksCount >= minShared)
   const links = new Float32Array(visibleEdges.length * 2)
   const linkColors = new Float32Array(visibleEdges.length * 4)
@@ -65,8 +67,8 @@ function buildEdgeArrays(edgeRecords: EdgeRecord[], minShared: number) {
     linkColors[index * 4] = 148
     linkColors[index * 4 + 1] = 163
     linkColors[index * 4 + 2] = 184
-    linkColors[index * 4 + 3] = 14 + t * 26
-    linkWidths[index] = 0.08 + t * 0.28
+    linkColors[index * 4 + 3] = level === 'person' ? 42 + t * 42 : 14 + t * 26
+    linkWidths[index] = level === 'person' ? 0.16 + t * 0.42 : 0.08 + t * 0.28
   })
 
   return { links, linkColors, linkWidths, visibleEdgeCount: visibleEdges.length }
@@ -90,7 +92,9 @@ function buildCosmosPayload(graph: Graph): CosmosPayload {
     pointColors[index * 4 + 1] = g
     pointColors[index * 4 + 2] = b
     pointColors[index * 4 + 3] = 255
-    pointSizes[index] = Math.max(2.6, Number(attrs.size ?? 3) * 1.15)
+    pointSizes[index] = attrs.isCenter
+      ? 14
+      : Math.max(3.2, Number(attrs.size ?? 3) * (graph.order <= 700 ? 1.35 : 1.15))
   })
 
   const xs = nodeIds.map((_id, index) => rawPositions[index * 2])
@@ -165,7 +169,7 @@ export function CosmosGalaxyView({
     const nextCutoff = minSharedForZoom(level, cosmos.getZoomLevel())
     if (!force && edgeCutoffRef.current === nextCutoff) return
 
-    const arrays = buildEdgeArrays(payload.edgeRecords, nextCutoff)
+    const arrays = buildEdgeArrays(payload.edgeRecords, nextCutoff, level)
     cosmos.setLinks(arrays.links)
     cosmos.setLinkColors(arrays.linkColors)
     cosmos.setLinkWidths(arrays.linkWidths)
@@ -266,12 +270,16 @@ export function CosmosGalaxyView({
       cosmos.fitView(0, 0.18)
     }, 0)
 
-    if (selectedNode) {
+    if (selectedNode && level !== 'person') {
       focusNode(selectedNode, false)
     } else if (level === 'global') {
       window.setTimeout(() => {
         focusNode(DEFAULT_FOCUS_NODE_ID, true)
       }, 160)
+    } else if (level === 'person') {
+      window.setTimeout(() => {
+        cosmos.fitView(260, 0.28)
+      }, 120)
     }
   }, [applyEdgeDensity, focusNode, level, payload, selectedNode])
 
@@ -303,7 +311,7 @@ export function CosmosGalaxyView({
         <div className="font-medium text-cyan-200">Cosmos.gl WebGL POC</div>
         <div>{payload.nodeIds.length.toLocaleString()} people · {visibleEdgeCount.toLocaleString()} / {payload.edgeRecords.length.toLocaleString()} edges</div>
         <div>Zoom LOD: shared works at least {edgeCutoff}</div>
-        <div>{hoveredLabel ? `Hover: ${hoveredLabel}` : 'Labels are intentionally deferred for global density'}</div>
+        <div>{hoveredLabel ? `Hover: ${hoveredLabel}` : level === 'person' ? 'Centered on one person and direct collaborators' : 'Labels are intentionally deferred for global density'}</div>
       </div>
     </div>
   )
