@@ -1,0 +1,11 @@
+# Local raw data snapshots and cloned upstream references.
+data/raw/
+data/processed/
+
+# Runtime and generated local files.
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.codex/

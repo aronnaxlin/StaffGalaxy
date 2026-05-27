@@ -1,0 +1,23 @@
+[project]
+name = "animedna"
+version = "0.1.0"
+description = "Staff Galaxy data tooling for Bangumi Archive anime staff collaboration graphs."
+requires-python = ">=3.12"
+dependencies = [
+  "duckdb>=1.1.0",
+  "PyYAML>=6.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["staff_galaxy*"]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
