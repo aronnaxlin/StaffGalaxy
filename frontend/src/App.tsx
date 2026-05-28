@@ -1,12 +1,12 @@
 import { Suspense, lazy, useState, useEffect, useCallback } from 'react'
 import Graph from 'graphology'
-import { loadLevel, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
+import { loadLevel, loadManifest, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
 import { buildGraph } from './data/graphBuilder'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
-import { panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
+import { mutedLink, panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
-import type { PersonNameMode } from './types'
+import type { Manifest, PersonNameMode } from './types'
 
 type ViewMode = 'galaxy' | 'constellation'
 type ConstellationMode = 'path' | 'compare'
@@ -88,6 +88,62 @@ function ViewLoading({ label }: { label: string }) {
   return (
     <div className="flex h-full w-full items-center justify-center bg-[#0a0a0f] text-sm text-slate-500">
       {label}
+    </div>
+  )
+}
+
+function DataSourceNotice({
+  manifest,
+  selectedNode,
+}: {
+  manifest: Manifest | null
+  selectedNode: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const snapshot = manifest?.snapshot
+  const archiveDate = snapshot?.archiveCreatedAt?.slice(0, 10)
+
+  return (
+    <div className={`absolute bottom-4 z-30 max-w-[22rem] text-xs ${selectedNode ? 'right-4 md:right-[26rem]' : 'right-4'}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        className={`${panelShell} w-full px-3 py-2 text-left transition-colors hover:border-[#f09199]/50`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-slate-100">
+            数据快照 {archiveDate ?? 'unknown'}
+          </span>
+          <span className="text-[10px] text-[#d98d88]">
+            {open ? '收起' : '详情'}
+          </span>
+        </div>
+        <div className="mt-0.5 truncate text-[11px] text-slate-400">
+          Bangumi 公开记录可能不完整 · 以 Archive 证据为准
+        </div>
+      </button>
+
+      {open && (
+        <div className={`${panelShell} mt-2 space-y-2 px-3 py-2 text-[11px] leading-relaxed text-slate-300`}>
+          <div>
+            当前图谱来自本地 DuckDB 中的 Bangumi Archive 快照
+            {snapshot ? `：${snapshot.archiveName}` : '。'}
+          </div>
+          <div>
+            Bangumi 的人物、Staff、职位记录由公开资料和社区维护，可能存在缺失、滞后或同名歧义；关系强度只表示当前快照中可回溯的共同动画职位证据。
+          </div>
+          {snapshot?.sourceUrl && (
+            <a
+              href={snapshot.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={mutedLink}
+            >
+              Archive source →
+            </a>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -185,6 +241,19 @@ export default function App() {
   const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
   const [personGalaxyLimit, setPersonGalaxyLimit] = useState(PERSON_GALAXY_LIMIT_DEFAULT)
   const [personGalaxyMinShared, setPersonGalaxyMinShared] = useState(PERSON_GALAXY_MIN_SHARED_DEFAULT)
+  const [manifest, setManifest] = useState<Manifest | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    loadManifest()
+      .then(data => {
+        if (!cancelled) setManifest(data)
+      })
+      .catch(() => {
+        if (!cancelled) setManifest(null)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     window.localStorage.setItem(PERSON_NAME_MODE_KEY, personNameMode)
@@ -454,6 +523,8 @@ export default function App() {
           <PersonNameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
         </div>
       </div>
+
+      <DataSourceNotice manifest={manifest} selectedNode={selectedNode} />
 
       {selectedNode && selectedNodeAttrs && (
         <NodePanel

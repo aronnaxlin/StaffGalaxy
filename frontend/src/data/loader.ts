@@ -6,6 +6,7 @@ import type {
   PathResult,
   PersonDetail,
   PersonCreditsResponse,
+  Manifest,
 } from '../types'
 import { recordRuntimeMetric } from './runtimeMetrics'
 
@@ -25,6 +26,7 @@ interface PersonGalaxyResponse {
 }
 
 const cache: Partial<Record<Level, LevelData>> = {}
+let manifestCache: Manifest | null = null
 
 async function fetchJson<T>(url: string): Promise<T> {
   const startedAt = performance.now()
@@ -63,6 +65,12 @@ export async function loadLevel(level: Level): Promise<LevelData> {
   }))
   cache[level] = { nodes, edges }
   return cache[level]!
+}
+
+export async function loadManifest(): Promise<Manifest> {
+  if (manifestCache) return manifestCache
+  manifestCache = await fetchJson<Manifest>('/api/manifest')
+  return manifestCache
 }
 
 export async function loadSearchIndex(): Promise<SearchEntry[]> {

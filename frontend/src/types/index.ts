@@ -60,6 +60,20 @@ export interface DataSource {
   snapshot: DataSnapshot | null
 }
 
+export interface GraphLevelManifest {
+  nodes: number
+  edges: number
+  min_degree: number
+  min_shared: number
+}
+
+export interface Manifest {
+  version: number
+  db_path: string
+  snapshot: DataSnapshot | null
+  levels: Record<string, GraphLevelManifest>
+}
+
 export interface SharedWork {
   subjectId: number
   subjectName: string

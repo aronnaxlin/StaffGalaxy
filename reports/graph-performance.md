@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 18:20 Asia/Shanghai
+Last updated: 2026-05-28 18:25 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,10 +35,10 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-DjhOKNrD.css` | 30.64 KB | 6.47 KB |
-| `dist/assets/index-BPpGp6ze.js` | 291.97 KB | 82.97 KB |
-| `dist/assets/CosmosGalaxyView-Dl23pBg8.js` | 362.17 KB | 105.94 KB |
-| `dist/assets/ConstellationView-DeLQPcUs.js` | 11.54 KB | 4.20 KB |
+| `dist/assets/index-Cy6sXnYt.css` | 30.81 KB | 6.51 KB |
+| `dist/assets/index-Nuw5OKWp.js` | 293.85 KB | 83.52 KB |
+| `dist/assets/CosmosGalaxyView-hjPb3uMa.js` | 362.17 KB | 105.94 KB |
+| `dist/assets/ConstellationView-BMVnEofN.js` | 11.54 KB | 4.20 KB |
 
 The previous single main JavaScript bundle was `661.94 KB` / `189.53 KB gzip`.
 Cosmos.gl now lives in a lazy route chunk, and the main app bundle is below Vite's default 500 KB warning threshold.
@@ -69,6 +69,11 @@ Additional production-preview smoke after Bangumi-inspired panel refactor:
 
 - `/` rendered the refreshed top control rail and search dropdown for `宫崎骏`.
 - `/person/1040` rendered the refreshed right-side person panel, filters, collaborator rows, and footer link without console warnings/errors.
+
+Additional production-preview smoke after adding the global data-source notice:
+
+- `/` rendered `数据快照 2026-05-19`, expanded to show `dump-2026-05-19.210434Z.zip`, the Archive source link, and the incomplete-record notice.
+- `/person/1040` rendered the same notice left of the right-side panel without obscuring the person detail panel; console remained clean.
 
 | Route / action | Main evidence | Browser/API timing |
 |---|---|---:|

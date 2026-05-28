@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 18:20 Asia/Shanghai
+Last updated: 2026-05-28 18:25 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,18 @@ Last updated: 2026-05-28 18:20 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added a global data-source notice backed by `/api/manifest`:
+  - The galaxy view now shows `数据快照 2026-05-19` from the Archive snapshot metadata.
+  - The collapsed notice explicitly states that Bangumi public records may be incomplete and that the app uses Archive evidence.
+  - Expanding the notice shows the Archive zip name, source link, and a concise explanation of missing/stale/community-maintained record risk.
+  - On person pages, the notice shifts left of the right-side person panel to avoid overlap.
+- Browser smoke checked production preview:
+  - `/` rendered the snapshot notice and expanded explanation with `dump-2026-05-19.210434Z.zip`.
+  - `/person/1040` rendered the notice left of the person panel while the existing person-detail snapshot footer remained visible.
+  - Console check returned no warnings or errors.
+- Confirmed frontend production build passes: `npm run build`.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Refreshed Bangumi visual research in `docs/DESIGN.md`:
