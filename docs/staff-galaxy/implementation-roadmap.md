@@ -20,6 +20,7 @@
 
 ### Phase 3: Frontend Core ✓
 - React + Cosmos.gl WebGL galaxy renderer.
+- Cosmos and Constellation route views lazy-load as separate frontend chunks.
 - Zoom-dependent edge LOD.
 - Global graph level switcher for `global`, `l0`, and `l1`, with shareable `/?level=...` URLs.
 - Person-centered galaxy view with back-to-global navigation.
@@ -60,7 +61,6 @@
 - Decide whether voice actors appear as separate layer or are interleaved with staff.
 
 ### Performance & Scale
-- Bundle splitting: lazy-load Cosmos.gl.
 - Server-side pagination for large neighbor lists.
 - Time-range filtering on graph edges.
 - Broader browser runtime sampling across multiple people and interaction types.

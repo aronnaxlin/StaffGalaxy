@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 12:41 Asia/Shanghai
+Last updated: 2026-05-28 12:49 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,22 @@ Last updated: 2026-05-28 12:41 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added frontend route-level bundle splitting:
+  - `CosmosGalaxyView` now lazy-loads as a separate chunk instead of living in the main application bundle.
+  - `ConstellationView` now lazy-loads as a separate chunk for `/path` and `/compare`.
+  - The main JavaScript bundle dropped from `661.94 KB` / `189.53 KB gzip` to `291.63 KB` / `82.77 KB gzip`.
+  - Vite no longer emits the default >500 KB chunk warning for this build.
+- Browser smoke checked production preview:
+  - `/` loaded `index-B41htz54.js` plus `CosmosGalaxyView-D9fv_E44.js` and rendered the global graph.
+  - `/path?from=1040&to=2215` loaded `index-B41htz54.js` plus `ConstellationView-wqffr0dd.js` and rendered the direct collaboration view.
+  - Console check returned no warnings or errors.
+- Updated `reports/graph-performance.md` and `docs/staff-galaxy/implementation-roadmap.md` with the new chunk layout.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
+- Confirmed frontend production build passes: `npm run build`.
+- Confirmed whitespace check passes: `git diff --check`.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added a bounded personal-galaxy multi-hop expansion path:

@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 12:41 Asia/Shanghai
+Last updated: 2026-05-28 12:49 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -36,9 +36,12 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
 | `dist/assets/index-BHCkZX9V.css` | 30.14 KB | 6.07 KB |
-| `dist/assets/index-Cz7Zm_sv.js` | 661.94 KB | 189.53 KB |
+| `dist/assets/index-B41htz54.js` | 291.63 KB | 82.77 KB |
+| `dist/assets/CosmosGalaxyView-D9fv_E44.js` | 360.45 KB | 105.24 KB |
+| `dist/assets/ConstellationView-wqffr0dd.js` | 11.53 KB | 4.18 KB |
 
-Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
+The previous single main JavaScript bundle was `661.94 KB` / `189.53 KB gzip`.
+Cosmos.gl now lives in a lazy route chunk, and the main app bundle is below Vite's default 500 KB warning threshold.
 
 ## Runtime Metrics
 
@@ -105,6 +108,10 @@ Additional production-preview route smoke:
   - Expanding `鈴木敏夫` triggered `/api/person/2215/galaxy?limit=36&min_shared=1`.
   - The merged personal graph rendered 103 people and 128 edges.
   - Collapsing the expansion restored the original 94 people and 93 edges.
+  - Console check returned no warnings or errors.
+- Lazy route chunk smoke:
+  - `/` loaded `index-B41htz54.js` plus `CosmosGalaxyView-D9fv_E44.js` and rendered the global graph.
+  - `/path?from=1040&to=2215` loaded `index-B41htz54.js` plus `ConstellationView-wqffr0dd.js` and rendered direct collaboration evidence.
   - Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):

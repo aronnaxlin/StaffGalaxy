@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Suspense, lazy, useState, useEffect, useCallback } from 'react'
 import Graph from 'graphology'
 import { loadLevel, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
 import { buildGraph } from './data/graphBuilder'
-import { CosmosGalaxyView } from './components/CosmosGalaxyView'
-import { ConstellationView } from './components/ConstellationView'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
 import { panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
@@ -13,6 +11,13 @@ import type { PersonNameMode } from './types'
 type ViewMode = 'galaxy' | 'constellation'
 type ConstellationMode = 'path' | 'compare'
 type GraphLevel = Exclude<Level, 'person'>
+
+const CosmosGalaxyView = lazy(() => import('./components/CosmosGalaxyView').then(module => ({
+  default: module.CosmosGalaxyView,
+})))
+const ConstellationView = lazy(() => import('./components/ConstellationView').then(module => ({
+  default: module.ConstellationView,
+})))
 
 const PERSON_GALAXY_LIMIT_DEFAULT = 120
 const PERSON_GALAXY_MIN_SHARED_DEFAULT = 1
@@ -75,6 +80,14 @@ function GraphLevelToggle({
           {LEVEL_LABELS[option]}
         </button>
       ))}
+    </div>
+  )
+}
+
+function ViewLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-[#0a0a0f] text-sm text-slate-500">
+      {label}
     </div>
   )
 }
@@ -358,26 +371,28 @@ export default function App() {
 
   if (view === 'constellation') {
     return (
-      <ConstellationView
-        key={`${route.constellationMode ?? 'path'}|${route.pathFrom ?? ''}|${route.pathTo ?? ''}`}
-        mode={route.constellationMode ?? 'path'}
-        initialPersonAId={route.pathFrom}
-        initialPersonBId={route.pathTo}
-        onNodeClick={handleConstellationNodeClick}
-        onRouteChange={handleConstellationRouteChange}
-        personNameMode={personNameMode}
-        onPersonNameModeChange={setPersonNameMode}
-        onBack={() => {
-          setView('galaxy')
-          if (selectedNode) {
-            setRoute({ view: 'galaxy', personId: selectedNode })
-            writeRoute(`/person/${encodeURIComponent(selectedNode)}`)
-          } else {
-            setRoute({ view: 'galaxy' })
-            writeRoute('/')
-          }
-        }}
-      />
+      <Suspense fallback={<ViewLoading label="Loading constellation…" />}>
+        <ConstellationView
+          key={`${route.constellationMode ?? 'path'}|${route.pathFrom ?? ''}|${route.pathTo ?? ''}`}
+          mode={route.constellationMode ?? 'path'}
+          initialPersonAId={route.pathFrom}
+          initialPersonBId={route.pathTo}
+          onNodeClick={handleConstellationNodeClick}
+          onRouteChange={handleConstellationRouteChange}
+          personNameMode={personNameMode}
+          onPersonNameModeChange={setPersonNameMode}
+          onBack={() => {
+            setView('galaxy')
+            if (selectedNode) {
+              setRoute({ view: 'galaxy', personId: selectedNode })
+              writeRoute(`/person/${encodeURIComponent(selectedNode)}`)
+            } else {
+              setRoute({ view: 'galaxy' })
+              writeRoute('/')
+            }
+          }}
+        />
+      </Suspense>
     )
   }
 
@@ -392,15 +407,17 @@ export default function App() {
   return (
     <div className="relative w-full h-full">
       {graph && (
-        <CosmosGalaxyView
-          graph={graph}
-          onNodeClick={handleNodeClick}
-          level={level}
-          selectedNode={selectedNode}
-          personNameMode={personNameMode}
-          minSharedFloor={level === 'person' ? personGalaxyMinShared : undefined}
-          onBackToGlobal={() => loadGraphLevelView('global')}
-        />
+        <Suspense fallback={<ViewLoading label="Loading graph renderer…" />}>
+          <CosmosGalaxyView
+            graph={graph}
+            onNodeClick={handleNodeClick}
+            level={level}
+            selectedNode={selectedNode}
+            personNameMode={personNameMode}
+            minSharedFloor={level === 'person' ? personGalaxyMinShared : undefined}
+            onBackToGlobal={() => loadGraphLevelView('global')}
+          />
+        </Suspense>
       )}
 
       <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
