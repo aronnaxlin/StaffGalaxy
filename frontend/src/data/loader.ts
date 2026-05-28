@@ -9,7 +9,7 @@ import type {
 } from '../types'
 import { recordRuntimeMetric } from './runtimeMetrics'
 
-interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string }
+interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string; expandedFrom?: string }
 
 export type Level = 'person' | 'global' | 'l0' | 'l1'
 
@@ -59,6 +59,7 @@ export async function loadLevel(level: Level): Promise<LevelData> {
     firstYear: e.firstYear,
     lastYear: e.lastYear,
     selectionReason: e.selectionReason,
+    expandedFrom: e.expandedFrom,
   }))
   cache[level] = { nodes, edges }
   return cache[level]!
@@ -102,6 +103,7 @@ export async function loadPersonGalaxy(
       firstYear: e.firstYear,
       lastYear: e.lastYear,
       selectionReason: e.selectionReason,
+      expandedFrom: e.expandedFrom,
     })),
   }
   personGalaxyCache.set(cacheKey, levelData)

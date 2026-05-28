@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Graph from 'graphology'
-import { loadLevel, loadPersonGalaxy, type Level } from './data/loader'
+import { loadLevel, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
 import { buildGraph } from './data/graphBuilder'
 import { CosmosGalaxyView } from './components/CosmosGalaxyView'
 import { ConstellationView } from './components/ConstellationView'
@@ -16,6 +16,8 @@ type GraphLevel = Exclude<Level, 'person'>
 
 const PERSON_GALAXY_LIMIT_DEFAULT = 120
 const PERSON_GALAXY_MIN_SHARED_DEFAULT = 1
+const PERSON_GALAXY_EXPANSION_LIMIT = 36
+const PERSON_GALAXY_EXPANSION_SCALE = 0.34
 
 const GRAPH_LEVELS: GraphLevel[] = ['global', 'l0', 'l1']
 
@@ -122,11 +124,49 @@ function graphLevelPath(graphLevel: GraphLevel) {
   return graphLevel === 'global' ? '/' : `/?level=${graphLevel}`
 }
 
+function edgeKey(source: string, target: string) {
+  return source < target ? `${source}|${target}` : `${target}|${source}`
+}
+
+function mergePersonExpansion(baseData: LevelData, anchorId: string, expansionData: LevelData): LevelData {
+  const nodeById = new Map(baseData.nodes.map(node => [node.id, { ...node }]))
+  const anchor = nodeById.get(anchorId)
+  if (!anchor) return baseData
+
+  const anchorX = anchor.x ?? 0
+  const anchorY = anchor.y ?? 0
+  for (const node of expansionData.nodes) {
+    if (node.id === anchorId || nodeById.has(node.id)) continue
+    nodeById.set(node.id, {
+      ...node,
+      isCenter: false,
+      expandedFrom: anchorId,
+      x: anchorX + (node.x ?? 0) * PERSON_GALAXY_EXPANSION_SCALE,
+      y: anchorY + (node.y ?? 0) * PERSON_GALAXY_EXPANSION_SCALE,
+    })
+  }
+
+  const edges = [...baseData.edges]
+  const existingEdges = new Set(edges.map(edge => edgeKey(edge.source, edge.target)))
+  for (const edge of expansionData.edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue
+    const key = edgeKey(edge.source, edge.target)
+    if (existingEdges.has(key)) continue
+    edges.push({ ...edge, expandedFrom: anchorId })
+    existingEdges.add(key)
+  }
+
+  return { nodes: Array.from(nodeById.values()), edges }
+}
+
 export default function App() {
   const [graph, setGraph] = useState<Graph | null>(null)
   const [level, setLevel] = useState<Level>('global')
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [personGraphData, setPersonGraphData] = useState<LevelData | null>(null)
+  const [expandedNeighborId, setExpandedNeighborId] = useState<string | null>(null)
+  const [expandingNeighborId, setExpandingNeighborId] = useState<string | null>(null)
   const [route, setRoute] = useState<AppRoute>(readRoute)
   const [view, setView] = useState<ViewMode>(() => route.view)
   const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
@@ -185,6 +225,9 @@ export default function App() {
           setGraph(buildGraph(data, 'person'))
           setLevel('person')
           setSelectedNode(route.personId)
+          setPersonGraphData(data)
+          setExpandedNeighborId(null)
+          setExpandingNeighborId(null)
         } catch {
           if (cancelled) return
           const data = await loadLevel('global')
@@ -192,6 +235,9 @@ export default function App() {
           setGraph(buildGraph(data, 'global'))
           setLevel('global')
           setSelectedNode(null)
+          setPersonGraphData(null)
+          setExpandedNeighborId(null)
+          setExpandingNeighborId(null)
           setRoute({ view: 'galaxy' })
           writeRoute('/', true)
         } finally {
@@ -206,6 +252,9 @@ export default function App() {
       setGraph(buildGraph(data, graphLevel))
       setLevel(graphLevel)
       setSelectedNode(null)
+      setPersonGraphData(null)
+      setExpandedNeighborId(null)
+      setExpandingNeighborId(null)
       setLoading(false)
     }
 
@@ -256,6 +305,30 @@ export default function App() {
     })
     writeRoute(constellationPath('compare', personAId, personBId))
   }, [])
+
+  const handleToggleNeighborExpansion = useCallback(async (neighborId: string) => {
+    if (level !== 'person' || !personGraphData) return
+
+    if (expandedNeighborId === neighborId) {
+      setGraph(buildGraph(personGraphData, 'person'))
+      setExpandedNeighborId(null)
+      setExpandingNeighborId(null)
+      return
+    }
+
+    setExpandingNeighborId(neighborId)
+    try {
+      const expansionData = await loadPersonGalaxy(neighborId, {
+        limit: PERSON_GALAXY_EXPANSION_LIMIT,
+        minShared: personGalaxyMinShared,
+      })
+      const mergedData = mergePersonExpansion(personGraphData, neighborId, expansionData)
+      setGraph(buildGraph(mergedData, 'person'))
+      setExpandedNeighborId(neighborId)
+    } finally {
+      setExpandingNeighborId(null)
+    }
+  }, [expandedNeighborId, level, personGalaxyMinShared, personGraphData])
 
   const selectedNodeAttrs = selectedNode && graph?.hasNode(selectedNode)
     ? graph.getNodeAttributes(selectedNode)
@@ -379,6 +452,9 @@ export default function App() {
           onClose={() => setSelectedNode(null)}
           onNodeClick={handleNodeClick}
           onCompare={handleCompareCollaborator}
+          expandedNeighborId={expandedNeighborId}
+          expandingNeighborId={expandingNeighborId}
+          onToggleNeighborExpansion={handleToggleNeighborExpansion}
         />
       )}
     </div>

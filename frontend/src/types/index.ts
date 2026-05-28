@@ -15,6 +15,7 @@ export interface GalaxyNode {
   firstYear?: number
   lastYear?: number
   neighborRoleTier?: string
+  expandedFrom?: string
 }
 
 export interface GalaxyEdge {
@@ -25,6 +26,7 @@ export interface GalaxyEdge {
   firstYear?: number
   lastYear?: number
   selectionReason?: string
+  expandedFrom?: string
 }
 
 export interface SearchEntry {

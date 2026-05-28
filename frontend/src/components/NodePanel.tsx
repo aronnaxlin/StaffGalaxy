@@ -38,6 +38,9 @@ interface NodePanelProps {
   onClose: () => void
   onNodeClick: (id: string) => void
   onCompare: (personAId: string, personBId: string) => void
+  expandedNeighborId: string | null
+  expandingNeighborId: string | null
+  onToggleNeighborExpansion: (neighborId: string) => void
 }
 
 type SubjectNameMode = 'original' | 'cn'
@@ -416,6 +419,9 @@ export function NodePanel({
   onClose,
   onNodeClick,
   onCompare,
+  expandedNeighborId,
+  expandingNeighborId,
+  onToggleNeighborExpansion,
 }: NodePanelProps) {
   const name = nodeAttrs.name as string
   const nameCn = nodeAttrs.nameCn as string | undefined
@@ -659,6 +665,8 @@ export function NodePanel({
         )}
         {filteredNeighbors.map(({ id, attrs, sharedWorksCount, collaborationScore, firstYear, lastYear }) => {
           const isExpanded = expandedId === id
+          const isGraphExpanded = expandedNeighborId === id
+          const isGraphExpanding = expandingNeighborId === id
           const neighborName = attrs.name as string
           const neighborNameCn = attrs.nameCn as string | undefined
           const neighborNameTw = attrs.nameTw as string | undefined
@@ -723,6 +731,27 @@ export function NodePanel({
                 }}
               >
                 {isExpanded ? '收起合作详情 ▾' : '展开合作详情 ▸'}
+              </button>
+
+              <button
+                type="button"
+                className={`w-full rounded px-2 py-0.5 text-left text-[11px] transition-colors ${
+                  isGraphExpanded
+                    ? 'bg-cyan-950/30 text-cyan-300'
+                    : 'text-slate-600 hover:bg-cyan-950/20 hover:text-cyan-300'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleNeighborExpansion(id)
+                }}
+                disabled={Boolean(expandingNeighborId)}
+                title="在当前个人星系中临时展开该合作者的一跳邻域"
+              >
+                {isGraphExpanding
+                  ? '二跳邻域加载中…'
+                  : isGraphExpanded
+                    ? '收起二跳邻域 △'
+                    : '展开二跳邻域 +'}
               </button>
 
               <button

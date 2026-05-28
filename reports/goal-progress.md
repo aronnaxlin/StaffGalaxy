@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 12:33 Asia/Shanghai
+Last updated: 2026-05-28 12:41 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,22 @@ Last updated: 2026-05-28 12:33 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added a bounded personal-galaxy multi-hop expansion path:
+  - Each direct collaborator row now offers `展开二跳邻域 +` without changing the current center person.
+  - Expansion reuses the existing bounded `/api/person/{id}/galaxy` data source with `limit=36` and the current `min_shared` threshold.
+  - Expanded neighbors are temporarily merged around the clicked collaborator and colored with the interaction accent; `收起二跳邻域` restores the original person-centered graph.
+  - Clicking any expanded node still opens that person as the new `/person/{id}` center through the existing route flow.
+- Browser smoke checked production preview on `/person/1040`:
+  - Initial graph rendered 94 people / 93 edges.
+  - Expanding `鈴木敏夫` triggered `/api/person/2215/galaxy?limit=36&min_shared=1` and rendered 103 people / 128 edges.
+  - Collapsing restored 94 people / 93 edges.
+  - Console check returned no warnings or errors.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
+- Confirmed whitespace check passes: `git diff --check`.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added personal-galaxy one-hop display controls in the Bangumi-inspired side panel:

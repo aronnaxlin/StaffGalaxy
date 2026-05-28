@@ -14,6 +14,7 @@ function sizeFromAttrs(attrs: Record<string, unknown>, level: Level): number {
 
 function colorFromAttrs(attrs: Record<string, unknown>): string {
   if (attrs.isCenter) return '#fef08a'
+  if (attrs.expandedFrom) return '#67e8f9'
 
   const roleLayer = attrs.roleLayer as string | undefined
   const degree = Number(attrs.degree ?? 0)
@@ -34,6 +35,7 @@ function edgeStyle(
   level: Level,
   firstYear?: number,
   lastYear?: number,
+  expandedFrom?: string,
 ) {
   const score = collaborationScore ?? sharedWorksCount
   const t = Math.min(1, Math.log10(1 + score) / 2.2)
@@ -57,6 +59,7 @@ function edgeStyle(
     collaborationScore: score,
     firstYear,
     lastYear,
+    expandedFrom,
   }
 }
 
@@ -79,6 +82,7 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
       firstYear: node.firstYear,
       lastYear: node.lastYear,
       neighborRoleTier: node.neighborRoleTier,
+      expandedFrom: node.expandedFrom,
     }
     if (node.isCenter) attrs.isCenter = true
     graph.addNode(node.id, attrs)
@@ -94,7 +98,14 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
           key,
           edge.source,
           edge.target,
-          edgeStyle(edge.sharedWorksCount, edge.collaborationScore, level, edge.firstYear, edge.lastYear),
+          edgeStyle(
+            edge.sharedWorksCount,
+            edge.collaborationScore,
+            level,
+            edge.firstYear,
+            edge.lastYear,
+            edge.expandedFrom,
+          ),
         )
       }
     }

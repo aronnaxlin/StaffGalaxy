@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 12:33 Asia/Shanghai
+Last updated: 2026-05-28 12:41 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,10 +35,8 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-DURoChlF.css` | 29.93 KB | 6.05 KB |
-| `dist/assets/index-BPlNwWeE.js` | 660.28 KB | 189.04 KB |
-
-Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
+| `dist/assets/index-BHCkZX9V.css` | 30.14 KB | 6.07 KB |
+| `dist/assets/index-Cz7Zm_sv.js` | 661.94 KB | 189.53 KB |
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
@@ -101,6 +99,12 @@ Additional production-preview route smoke:
   - The renderer legend updated to `min shared works: 3`, with 30 people and 29 edges in the filtered graph.
   - `合作者职位 SAB` displayed 29 loaded collaborators; `合作者职位 CD` displayed the empty-state message for this sample.
   - `时间 近10年` narrowed the list to 6 / 29 collaborators.
+  - Console check returned no warnings or errors.
+- Personal-galaxy multi-hop smoke:
+  - `/person/1040` rendered 94 people and 93 edges before expansion.
+  - Expanding `鈴木敏夫` triggered `/api/person/2215/galaxy?limit=36&min_shared=1`.
+  - The merged personal graph rendered 103 people and 128 edges.
+  - Collapsing the expansion restored the original 94 people and 93 edges.
   - Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):
