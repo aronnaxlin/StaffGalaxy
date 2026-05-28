@@ -47,7 +47,7 @@ CREATE TABLE persons (
 );
 ```
 
-Only `type = 1` (real individuals) are default graph nodes. **No `name_cn` column exists**. Search and display-name variants use the raw Archive `infobox` plus CJK variant mapping to bridge simplified Chinese, aliases, kana, and romanized names without inventing translations. API responses expose `name` and, when present, `nameCn` extracted from the Archive `简体中文名` field.
+Only `type = 1` (real individuals) are default graph nodes. **No `name_cn` column exists**. Search and display-name variants use the raw Archive `infobox` plus CJK variant mapping to bridge simplified Chinese, traditional Chinese when Archive provides it, aliases, kana, and romanized names without inventing translations. API responses expose `name`, `nameCn` extracted from `简体中文名`, and `nameTw` extracted from `繁体中文名` / `繁體中文名` when present.
 
 ### credits
 
@@ -96,7 +96,7 @@ CREATE TABLE person_search_terms (
 );
 ```
 
-`person_search_terms` is rebuilt from `persons.name` and selected real Archive infobox fields such as `简体中文名`, `英文名`, `日文名`, `纯假名`, `罗马字`, and aliases. The API searches normalized and compact forms with multi-term AND matching.
+`person_search_terms` is rebuilt from `persons.name` and selected real Archive infobox fields such as `简体中文名`, `繁体中文名`, `繁體中文名`, `英文名`, `日文名`, `纯假名`, `罗马字`, and aliases. The API searches normalized and compact forms with multi-term AND matching.
 
 ### staff_positions
 

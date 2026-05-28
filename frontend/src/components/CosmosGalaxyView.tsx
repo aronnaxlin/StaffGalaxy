@@ -118,7 +118,8 @@ function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode): Cosmo
 
     const name = (attrs.name as string) ?? (attrs.label as string) ?? nodeId
     const nameCn = attrs.nameCn as string | undefined
-    nodeLabels.set(nodeId, displayPersonName({ name, nameCn }, personNameMode))
+    const nameTw = attrs.nameTw as string | undefined
+    nodeLabels.set(nodeId, displayPersonName({ name, nameCn, nameTw }, personNameMode))
   })
 
   const xs = nodeIds.map((_id, index) => rawPositions[index * 2])
@@ -340,6 +341,7 @@ export function CosmosGalaxyView({
       {
         name: graph.getNodeAttribute(selectedNode, 'name'),
         nameCn: graph.getNodeAttribute(selectedNode, 'nameCn'),
+        nameTw: graph.getNodeAttribute(selectedNode, 'nameTw'),
       },
       personNameMode,
     )

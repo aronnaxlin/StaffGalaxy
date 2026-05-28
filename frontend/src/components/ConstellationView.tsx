@@ -350,14 +350,14 @@ export function ConstellationView({
           {isCompareMode ? '双人比较' : '关系星图'}
         </div>
         <div className={`${segmentedGroupClass} w-fit`}>
-          {(['original', 'cn'] as const).map(mode => (
+          {(['original', 'cn', 'tw'] as const).map(mode => (
             <button
               key={mode}
               type="button"
               onClick={() => onPersonNameModeChange(mode)}
               className={segmentedButtonClass(personNameMode === mode, 'cyan')}
             >
-              {mode === 'original' ? '原名' : '简中'}
+              {mode === 'original' ? '原名' : mode === 'cn' ? '简中' : '繁中'}
             </button>
           ))}
         </div>

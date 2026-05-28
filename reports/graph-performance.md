@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 11:46 Asia/Shanghai
+Last updated: 2026-05-28 12:03 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -14,7 +14,7 @@ Last updated: 2026-05-28 11:46 Asia/Shanghai
 - Visible renderer edges: 518,581.
 - Graph nodes: 21,006.
 - Person infobox rows populated from Archive: 93,579.
-- Search terms: 253,609 terms across 83,565 real people (`name`: 83,565, `infobox`: 170,044).
+- Search terms: 253,625 terms across 83,565 real people after adding Archive-provided traditional Chinese name fields (`name`: 83,565, `infobox`: 170,060).
 
 ## API Manifest
 
@@ -36,7 +36,9 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
 | `dist/assets/index-BNJI9o8q.css` | 29.75 KB | 6.04 KB |
-| `dist/assets/index-pmBDDmVI.js` | 656.87 KB | 187.98 KB |
+| `dist/assets/index-BFbrIZ-Y.js` | 657.09 KB | 188.09 KB |
+
+Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
@@ -87,6 +89,12 @@ Additional production-preview route smoke:
   - Search for `宫崎` opened the redesigned result dropdown with degree, Bangumi ID, and external-link affordances.
   - `/compare?from=1040&to=2215` rendered the redesigned direct comparison sidebar with 31 shared works.
   - `/path?from=1040&to=11706` rendered the redesigned non-direct path sidebar and evidence controls.
+  - Console check returned no warnings or errors.
+- Traditional Chinese person-name smoke:
+  - Rebuilt `person_search_terms` with `scripts/migrate_search_index.py`.
+  - Search `神前曉` returned `3287 / 神前暁`, `nameCn=神前晓`, `nameTw=神前曉`.
+  - `/api/graph/global/nodes` payloads include `nameTw`.
+  - Browser production preview showed the `繁中` toolbar toggle, re-rendered the search row as `神前曉` / `神前暁`, and opened `/person/3287`.
   - Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):

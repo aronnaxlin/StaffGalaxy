@@ -86,7 +86,7 @@ Mobile is not full-scope yet, but new work must not create impossible states:
 
 - Search is a single input: name, CJK variant, or Bangumi ID.
 - Result rows show name, degree, ID, and a small Bangumi external link.
-- Person-name display uses a compact `原名` / `简中` segmented control. `简中` only uses Archive-provided `简体中文名` and falls back to the original name.
+- Person-name display uses a compact `原名` / `简中` / `繁中` segmented control. `简中` and `繁中` only use Archive-provided `简体中文名` and `繁体中文名` / `繁體中文名`, falling back to the original name when missing.
 - Keyboard-selected rows use a restrained violet/cyan tint.
 - Locked selected people render as pills with ID and external link.
 - Loading spinner is small and inline at the right edge.

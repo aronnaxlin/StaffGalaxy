@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 11:46 Asia/Shanghai
+Last updated: 2026-05-28 12:03 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,26 @@ Last updated: 2026-05-28 11:46 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added Archive-backed traditional Chinese person-name support:
+  - API person payloads now include `nameTw` extracted from real Archive `繁体中文名` / `繁體中文名` infobox fields when present.
+  - `person_search_terms` now indexes those traditional-name fields; the local DuckDB search index was rebuilt from `data/processed/extracted/dump-2026-05-19.210434Z/person.jsonlines`.
+  - Frontend person-name preference now supports `原名` / `简中` / `繁中` across graph hover labels, search results/locked pills, person panels, and Constellation path labels/evidence.
+  - Missing traditional names fall back to the original person name; no translations are invented.
+- Verified against real local data:
+  - Rebuilt `person_search_terms` from 253,609 to 253,625 terms across 83,565 real people.
+  - Search `神前曉` returns `3287 / 神前暁` with `nameCn=神前晓` and `nameTw=神前曉`.
+  - `/api/graph/global/nodes` payloads include `nameTw`.
+- Browser smoke checked production preview:
+  - Global toolbar exposes `原名` / `简中` / `繁中`.
+  - Searching `神前曉` renders `神前暁 d223 #3287`.
+  - Switching to `繁中` re-renders the search row as `神前曉` with `神前暁` as secondary text, and selecting it opens `/person/3287`.
+  - Console check returned no warnings or errors.
+- Noted current subject-title limitation: `subjects` has `name_cn` but no subject infobox or traditional-title column in the current schema, so work-title mode remains `原名` / `中文` until a real Archive field is available.
+- Updated design and architecture docs to describe `nameTw` and traditional-name indexing.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Refactored existing UI panels toward the Bangumi-inspired direction in `docs/DESIGN.md`:
@@ -285,19 +305,19 @@ Last updated: 2026-05-28 11:46 Asia/Shanghai
 ## Requirement Coverage
 
 - Data/schema: in progress. Core Bangumi Archive import exists; complete staff collaboration edge table now exists; visible graph remains a separate display layer; staff credits now include `raw_position` alongside normalized role metadata; `data_snapshots` records the current Archive source for evidence traceability.
-- Search: in progress. Unified person search supports numeric ID, CJK variant expansion, Archive infobox aliases, kana, romanized names, and bounded fuzzy typo fallback through a DB-backed `person_search_terms` table with focused backend regression coverage and real-DB timing samples. Broader ranking/percentile tuning remains.
+- Search: in progress. Unified person search supports numeric ID, CJK variant expansion, Archive infobox aliases, simplified Chinese, Archive-provided traditional Chinese names, kana, romanized names, and bounded fuzzy typo fallback through a DB-backed `person_search_terms` table with focused backend regression coverage and real-DB timing samples. Broader ranking/percentile tuning remains.
 - Global graph: in progress. Cosmos.gl renderer consumes sparse `visible_person_edges`; `global`, `l0`, and `l1` levels are selectable from the toolbar and shareable via `/?level=...`; complete evidence is preserved in DuckDB.
 - Person graph/detail: in progress. Person-centered galaxy, sidebar summary stats/recent works, expandable complete credit history, and expandable collaboration detail exist.
 - Two-person comparison: in progress. Constellation view now shows direct-collaboration evidence for degree-1 pairs and an explicit no-direct hint for degree-2+ pairs; `/compare?from=...&to=...` is shareable and person-panel collaborator rows can open it directly.
 - Path: in progress. Backend now uses `person_collaboration_edges`, not `visible_person_edges`; frontend constellation view shows shortest paths and expandable per-hop evidence, and path URLs can be shared.
-- Information panel/external links: in progress. Search results, selected search pills, person detail footer, shared-work cards, and constellation path labels now expose Bangumi links; person/detail/collaboration evidence surfaces now include snapshot metadata; subject display preference and person display-name preference exist with localStorage-backed toggles. Traditional-name mode remains pending because no verified source field has been wired yet.
-- UI/design: in progress. Obsidian-like graph style exists, and `docs/DESIGN.md` now records tokens, layout rules, component states, and Bangumi-inspired constraints; implementation still needs further token extraction.
+- Information panel/external links: in progress. Search results, selected search pills, person detail footer, shared-work cards, and constellation path labels now expose Bangumi links; person/detail/collaboration evidence surfaces now include snapshot metadata; subject display preference and person display-name preference exist with localStorage-backed toggles, including person `繁中` mode when Archive provides a traditional Chinese name.
+- UI/design: in progress. Obsidian-like graph style exists, `docs/DESIGN.md` records tokens/layout/component states, and core panels now share extracted UI tokens; remaining UI work is deeper interaction/filter polish rather than first-pass styling.
 - Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search. Browser smoke checks cover the link/preference/detail/path-evidence/credit-history/shareable-route/graph-level surfaces, and production-preview runtime metrics now cover global graph, l0/l1 graph levels, person graph, compare, path, collaboration expansion, graph endpoint payload timing, and search distribution samples.
 - Routing/history: in progress. Shareable graph-level/person/path/compare URLs exist and the known browser back divergence between `/path`, `/person/{id}`, and `/` is fixed.
 - Deployment/docs: partial. `.env.example`, `.gitignore`, README setup/import/test/API/local-preview notes, and architecture/rebuild/migration docs are now aligned with the current implementation; deployment remains intentionally local-only.
 
 ## Next Best Work
 
-- Extract repeated UI values into shared tokens once the prototype stabilizes.
+- Add deeper personal-galaxy filtering/expansion controls for layer, edge strength, role, and time.
 - Add traditional-name handling if a verified Archive field is available.
 - Broaden browser runtime measurements across repeated reloads, more people, and drag/zoom/hover interactions.

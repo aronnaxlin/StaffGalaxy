@@ -43,11 +43,11 @@ class CompleteGraphApiTests(unittest.TestCase):
                         1,
                         "宮崎駿",
                         1,
-                        "{{Infobox Crt\r\n|简体中文名= 宫崎骏\r\n|别名={\r\n[照樹務]\r\n[英文名|Hayao Miyazaki]\r\n[日文名|宮崎 駿]\r\n[纯假名|みやざき はやお]\r\n[罗马字|Miyazaki Hayao]\r\n}\r\n}}",
+                        "{{Infobox Crt\r\n|简体中文名= 宫崎骏\r\n|繁體中文名= 宮崎駿\r\n|别名={\r\n[照樹務]\r\n[英文名|Hayao Miyazaki]\r\n[日文名|宮崎 駿]\r\n[纯假名|みやざき はやお]\r\n[罗马字|Miyazaki Hayao]\r\n}\r\n}}",
                         "[]",
                         "",
                     ),
-                    (2, "Hidden Collaborator", 1, "", "[]", ""),
+                    (2, "Hidden Collaborator", 1, "{{Infobox Crt\r\n|繁體中文名= 隱藏合作者\r\n}}", "[]", ""),
                     (3, "Visible Bridge", 1, "", "[]", ""),
                     (4, "Hidden Endpoint", 1, "", "[]", ""),
                 ],
@@ -121,6 +121,7 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(detail["sharedWorks"][0]["personARoles"], "原画")
         self.assertEqual(detail["sharedWorks"][0]["personBRoles"], "原画")
         self.assertEqual(detail["personA"]["nameCn"], "宫崎骏")
+        self.assertEqual(detail["personA"]["nameTw"], "宮崎駿")
         self.assertEqual(detail["source"]["snapshot"]["archiveName"], "dump-test.zip")
 
     def test_path_uses_complete_edges_not_visible_edges(self) -> None:
@@ -136,6 +137,7 @@ class CompleteGraphApiTests(unittest.TestCase):
         by_variant = api.search_persons(q="宫崎骏", limit=3)
         by_romanized = api.search_persons(q="Hayao Miyazaki", limit=3)
         by_alias = api.search_persons(q="照樹務", limit=3)
+        by_traditional = api.search_persons(q="隱藏合作者", limit=3)
         by_romanized_typo = api.search_persons(q="Miyazki Hayao", limit=3)
         by_cjk_typo = api.search_persons(q="宫崎俊", limit=3)
 
@@ -143,8 +145,11 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(by_variant[0]["id"], "1")
         self.assertEqual(by_variant[0]["name"], "宮崎駿")
         self.assertEqual(by_variant[0]["nameCn"], "宫崎骏")
+        self.assertEqual(by_variant[0]["nameTw"], "宮崎駿")
         self.assertEqual(by_romanized[0]["id"], "1")
         self.assertEqual(by_alias[0]["id"], "1")
+        self.assertEqual(by_traditional[0]["id"], "2")
+        self.assertEqual(by_traditional[0]["nameTw"], "隱藏合作者")
         self.assertEqual(by_romanized_typo[0]["id"], "1")
         self.assertEqual(by_cjk_typo[0]["id"], "1")
 
@@ -162,10 +167,16 @@ class CompleteGraphApiTests(unittest.TestCase):
         path = api.shortest_path(1, 4, max_paths=3, max_depth=3)
 
         self.assertEqual(nodes[0]["nameCn"], "宫崎骏")
+        self.assertEqual(nodes[0]["nameTw"], "宮崎駿")
         self.assertEqual(center["nodes"][0]["nameCn"], "宫崎骏")
+        self.assertEqual(center["nodes"][0]["nameTw"], "宮崎駿")
         self.assertEqual(
             next(person for person in path["people"] if person["id"] == "1")["nameCn"],
             "宫崎骏",
+        )
+        self.assertEqual(
+            next(person for person in path["people"] if person["id"] == "1")["nameTw"],
+            "宮崎駿",
         )
 
     def test_person_detail_returns_stats_roles_and_recent_works(self) -> None:
@@ -174,6 +185,7 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(detail["person"]["id"], "1")
         self.assertEqual(detail["person"]["name"], "宮崎駿")
         self.assertEqual(detail["person"]["nameCn"], "宫崎骏")
+        self.assertEqual(detail["person"]["nameTw"], "宮崎駿")
         self.assertEqual(detail["stats"]["animeSubjectCount"], 2)
         self.assertEqual(detail["stats"]["firstCreditYear"], 2020)
         self.assertEqual(detail["stats"]["latestCreditYear"], 2021)
@@ -190,6 +202,7 @@ class CompleteGraphApiTests(unittest.TestCase):
 
         self.assertEqual(credits["person"]["id"], "1")
         self.assertEqual(credits["person"]["name"], "宮崎駿")
+        self.assertEqual(credits["person"]["nameTw"], "宮崎駿")
         self.assertEqual(credits["total"], 2)
         self.assertEqual([row["subjectId"] for row in credits["credits"]], [11, 10])
         self.assertEqual(credits["credits"][0]["rawPosition"], "脚本")

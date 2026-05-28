@@ -14,6 +14,8 @@ _COMPACT_DROP_RE = re.compile(r"[\s\-_・·.．,，、/／()（）\[\]【】]+")
 
 _SEARCH_FIELDS = {
     "简体中文名",
+    "繁体中文名",
+    "繁體中文名",
     "第二中文名",
     "英文名",
     "日文名",
@@ -80,10 +82,9 @@ def extract_infobox_search_terms(infobox: str) -> list[str]:
     return unique
 
 
-def extract_person_name_cn(infobox: str) -> str:
-    """Return the Archive-provided simplified Chinese person name, if present."""
+def _extract_person_field(infobox: str, field_names: set[str]) -> str:
     for key, value in _FIELD_RE.findall(infobox or ""):
-        if key.strip() == "简体中文名":
+        if key.strip() in field_names:
             terms = _split_alias_value(value)
             return terms[0] if terms else ""
 
@@ -91,10 +92,20 @@ def extract_person_name_cn(infobox: str) -> str:
         if "|" not in item:
             continue
         key, value = item.split("|", 1)
-        if key.strip() == "简体中文名":
+        if key.strip() in field_names:
             terms = _split_alias_value(value)
             return terms[0] if terms else ""
     return ""
+
+
+def extract_person_name_cn(infobox: str) -> str:
+    """Return the Archive-provided simplified Chinese person name, if present."""
+    return _extract_person_field(infobox, {"简体中文名"})
+
+
+def extract_person_name_tw(infobox: str) -> str:
+    """Return the Archive-provided traditional Chinese person name, if present."""
+    return _extract_person_field(infobox, {"繁体中文名", "繁體中文名"})
 
 
 def build_person_search_terms(conn: duckdb.DuckDBPyConnection) -> SearchIndexStats:

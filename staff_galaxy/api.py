@@ -12,7 +12,12 @@ import duckdb
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from .search_index import compact_search_text, extract_person_name_cn, normalize_search_text
+from .search_index import (
+    compact_search_text,
+    extract_person_name_cn,
+    extract_person_name_tw,
+    normalize_search_text,
+)
 
 
 DEFAULT_DB_PATH = Path("data/processed/staff_galaxy.duckdb")
@@ -92,6 +97,7 @@ def _person_payload(person_id: int | str, name: str, infobox: str = "") -> dict[
         "id": str(person_id),
         "name": name,
         "nameCn": extract_person_name_cn(infobox),
+        "nameTw": extract_person_name_tw(infobox),
     }
 
 
@@ -179,6 +185,7 @@ def graph_nodes(level: str) -> list[dict[str, Any]]:
             "id": row[0],
             "name": row[1],
             "nameCn": extract_person_name_cn(row[2] or ""),
+            "nameTw": extract_person_name_tw(row[2] or ""),
             "x": row[3],
             "y": row[4],
             "degree": row[5],
@@ -296,6 +303,7 @@ def person_galaxy(
             "id": center_id,
             "name": center[1],
             "nameCn": extract_person_name_cn(center[2] or ""),
+            "nameTw": extract_person_name_tw(center[2] or ""),
             "x": 0,
             "y": 0,
             "degree": center[3],
@@ -335,6 +343,7 @@ def person_galaxy(
                 "id": node_id,
                 "name": row[1],
                 "nameCn": extract_person_name_cn(row[2] or ""),
+                "nameTw": extract_person_name_tw(row[2] or ""),
                 "x": round(radius * math.cos(angle), 3),
                 "y": round(radius * math.sin(angle), 3),
                 "degree": row[3],
@@ -446,6 +455,7 @@ def person_detail(
             "id": person[0],
             "name": person[1],
             "nameCn": extract_person_name_cn(person[2] or ""),
+            "nameTw": extract_person_name_tw(person[2] or ""),
             "career": career if isinstance(career, list) else [],
             "summary": person[4] or "",
         },
@@ -633,8 +643,8 @@ def collaboration_detail(person_a: int, person_b: int) -> dict[str, Any]:
         source = _source_payload(conn)
 
     return {
-        "personA": _person_payload(person_a, p_a[0], p_a[1] or "") if p_a else {"id": str(person_a), "name": "?", "nameCn": ""},
-        "personB": _person_payload(person_b, p_b[0], p_b[1] or "") if p_b else {"id": str(person_b), "name": "?", "nameCn": ""},
+        "personA": _person_payload(person_a, p_a[0], p_a[1] or "") if p_a else {"id": str(person_a), "name": "?", "nameCn": "", "nameTw": ""},
+        "personB": _person_payload(person_b, p_b[0], p_b[1] or "") if p_b else {"id": str(person_b), "name": "?", "nameCn": "", "nameTw": ""},
         "sharedWorksCount": shared_works_count,
         "collaborationScore": round(collaboration_score, 2),
         "firstYear": first_year,
@@ -818,7 +828,7 @@ def shortest_path(
         "degree": degree,
         "pathCount": len(all_paths),
         "people": [
-            people.get(pid, {"id": str(pid), "name": f"Person {pid}", "nameCn": ""})
+            people.get(pid, {"id": str(pid), "name": f"Person {pid}", "nameCn": "", "nameTw": ""})
             for pid in sorted(all_ids)
         ],
         "paths": [
@@ -956,7 +966,7 @@ def _search_person_rows(
     limit: int,
     *,
     exclude_id: int | None = None,
-) -> list[tuple[str, str, str, int]]:
+) -> list[tuple[str, str, str, str, int]]:
     terms = [term.strip() for term in q.split() if term.strip()] or [q]
     conditions: list[str] = []
     params: list[str | int] = []
@@ -1005,7 +1015,16 @@ def _search_person_rows(
         """,
         [*rank_params, *params, limit],
     ).fetchall()
-    return [(row[0], row[1], extract_person_name_cn(row[2] or ""), row[3]) for row in rows]
+    return [
+        (
+            row[0],
+            row[1],
+            extract_person_name_cn(row[2] or ""),
+            extract_person_name_tw(row[2] or ""),
+            row[3],
+        )
+        for row in rows
+    ]
 
 
 def _max_fuzzy_distance(query: str) -> int:
@@ -1042,7 +1061,7 @@ def _fuzzy_search_person_rows(
     limit: int,
     *,
     exclude_ids: set[str],
-) -> list[tuple[str, str, str, int]]:
+) -> list[tuple[str, str, str, str, int]]:
     compact_variants = _compact_cjk_variants(q)
     compact_variants = [variant for variant in compact_variants if variant]
     if not compact_variants:
@@ -1092,7 +1111,16 @@ def _fuzzy_search_person_rows(
             """,
             [query, min_length, max_length, *first_chars, *exclude_params, max_distance, limit],
         ).fetchall()
-        return [(row[0], row[1], extract_person_name_cn(row[2] or ""), row[3]) for row in rows]
+        return [
+            (
+                row[0],
+                row[1],
+                extract_person_name_cn(row[2] or ""),
+                extract_person_name_tw(row[2] or ""),
+                row[3],
+            )
+            for row in rows
+        ]
 
     candidates = conn.execute(
         f"""
@@ -1114,7 +1142,7 @@ def _fuzzy_search_person_rows(
         [min_length, max_length, *first_chars, *exclude_params],
     ).fetchall()
 
-    best_by_person: dict[str, tuple[int, str, str, int, float]] = {}
+    best_by_person: dict[str, tuple[int, str, str, str, int, float]] = {}
     for person_id, name, infobox, degree, weighted_degree, term_compact in candidates:
         distance = min(
             _unicode_edit_distance(str(term_compact), variant, max_distance)
@@ -1128,17 +1156,18 @@ def _fuzzy_search_person_rows(
                 distance,
                 str(name),
                 extract_person_name_cn(str(infobox or "")),
+                extract_person_name_tw(str(infobox or "")),
                 int(degree),
                 float(weighted_degree or 0),
             )
 
     ranked = sorted(
         best_by_person.items(),
-        key=lambda item: (item[1][0], -item[1][3], -item[1][4], item[1][1]),
+        key=lambda item: (item[1][0], -item[1][4], -item[1][5], item[1][1]),
     )
     return [
-        (person_id, name, name_cn, degree)
-        for person_id, (_distance, name, name_cn, degree, _weighted_degree) in ranked[:limit]
+        (person_id, name, name_cn, name_tw, degree)
+        for person_id, (_distance, name, name_cn, name_tw, degree, _weighted_degree) in ranked[:limit]
     ]
 
 
@@ -1166,7 +1195,16 @@ def search_persons(
                 """,
                 [int(q), limit],
             ).fetchall()
-            rows = [(row[0], row[1], extract_person_name_cn(row[2] or ""), row[3]) for row in exact_rows]
+            rows = [
+                (
+                    row[0],
+                    row[1],
+                    extract_person_name_cn(row[2] or ""),
+                    extract_person_name_tw(row[2] or ""),
+                    row[3],
+                )
+                for row in exact_rows
+            ]
             remaining = limit - len(rows)
             if remaining > 0:
                 rows.extend(
@@ -1185,4 +1223,4 @@ def search_persons(
                     )
                 )
 
-    return row_dicts(rows, ["id", "name", "nameCn", "degree"])
+    return row_dicts(rows, ["id", "name", "nameCn", "nameTw", "degree"])

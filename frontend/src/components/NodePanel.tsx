@@ -378,8 +378,9 @@ export function NodePanel({
 }: NodePanelProps) {
   const name = nodeAttrs.name as string
   const nameCn = nodeAttrs.nameCn as string | undefined
-  const displayName = displayPersonName({ name, nameCn }, personNameMode)
-  const secondaryName = secondaryPersonName({ name, nameCn }, personNameMode)
+  const nameTw = nodeAttrs.nameTw as string | undefined
+  const displayName = displayPersonName({ name, nameCn, nameTw }, personNameMode)
+  const secondaryName = secondaryPersonName({ name, nameCn, nameTw }, personNameMode)
   const degree = nodeAttrs.degree as number
   const roleLayer = nodeAttrs.roleLayer as string | undefined
   const weightedDegree = nodeAttrs.visibleWeightedDegree as number | undefined
@@ -483,14 +484,14 @@ export function NodePanel({
             )}
           </div>
           <div className={`${segmentedGroupClass} mt-2 w-fit`}>
-            {(['original', 'cn'] as const).map(mode => (
+            {(['original', 'cn', 'tw'] as const).map(mode => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => onPersonNameModeChange(mode)}
                 className={segmentedButtonClass(personNameMode === mode, 'cyan')}
               >
-                {mode === 'original' ? '原名' : '简中'}
+                {mode === 'original' ? '原名' : mode === 'cn' ? '简中' : '繁中'}
               </button>
             ))}
           </div>
@@ -532,12 +533,13 @@ export function NodePanel({
           const isExpanded = expandedId === id
           const neighborName = attrs.name as string
           const neighborNameCn = attrs.nameCn as string | undefined
+          const neighborNameTw = attrs.nameTw as string | undefined
           const neighborDisplayName = displayPersonName(
-            { name: neighborName, nameCn: neighborNameCn },
+            { name: neighborName, nameCn: neighborNameCn, nameTw: neighborNameTw },
             personNameMode,
           )
           const neighborSecondaryName = secondaryPersonName(
-            { name: neighborName, nameCn: neighborNameCn },
+            { name: neighborName, nameCn: neighborNameCn, nameTw: neighborNameTw },
             personNameMode,
           )
           return (

@@ -34,14 +34,14 @@ function PersonNameModeToggle({
 }) {
   return (
     <div className={segmentedGroupClass}>
-      {(['original', 'cn'] as const).map(option => (
+      {(['original', 'cn', 'tw'] as const).map(option => (
         <button
           key={option}
           type="button"
           onClick={() => onChange(option)}
           className={segmentedButtonClass(mode === option, 'cyan')}
         >
-          {option === 'original' ? '原名' : '简中'}
+          {option === 'original' ? '原名' : option === 'cn' ? '简中' : '繁中'}
         </button>
       ))}
     </div>

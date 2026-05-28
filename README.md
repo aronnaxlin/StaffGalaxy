@@ -139,7 +139,7 @@ VITE_BANGUMI_BASE_URL=https://bgm.tv
 | `GET /api/person/{id}/galaxy` | 个人中心星系 |
 | `GET /api/person/{id}/detail` | 人物摘要、常见职位、最近参与作品 |
 | `GET /api/person/{id}/credits` | 完整动画职位履历，保留 raw role |
-| `GET /api/search/persons?q=...` | ID / 原名 / 简中 / 别名 / 罗马字 / 模糊搜索 |
+| `GET /api/search/persons?q=...` | ID / 原名 / 简中 / 繁中 / 别名 / 罗马字 / 模糊搜索 |
 | `GET /api/collaboration/{a}/{b}` | 两人直接共同作品证据 |
 | `GET /api/path/{a}/{b}` | 基于完整合作图的最短路径 |
 

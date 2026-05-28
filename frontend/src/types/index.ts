@@ -2,6 +2,7 @@ export interface GalaxyNode {
   id: string
   name: string
   nameCn?: string
+  nameTw?: string
   degree?: number
   x?: number
   y?: number
@@ -29,14 +30,16 @@ export interface SearchEntry {
   id: string
   name: string
   nameCn?: string
+  nameTw?: string
   degree?: number
 }
 
-export type PersonNameMode = 'original' | 'cn'
+export type PersonNameMode = 'original' | 'cn' | 'tw'
 
 export interface PersonNameLike {
   name: string
   nameCn?: string
+  nameTw?: string
 }
 
 export interface DataSnapshot {
@@ -75,6 +78,7 @@ export interface PathPerson {
   id: string
   name: string
   nameCn?: string
+  nameTw?: string
 }
 
 export interface SinglePath {
@@ -92,8 +96,8 @@ export interface PathResult {
 }
 
 export interface CollaborationDetail {
-  personA: { id: string; name: string; nameCn?: string }
-  personB: { id: string; name: string; nameCn?: string }
+  personA: { id: string; name: string; nameCn?: string; nameTw?: string }
+  personB: { id: string; name: string; nameCn?: string; nameTw?: string }
   sharedWorksCount: number
   collaborationScore: number
   firstYear: number | null
@@ -141,6 +145,7 @@ export interface PersonCreditsResponse {
     id: string
     name: string
     nameCn?: string
+    nameTw?: string
   }
   total: number
   limit: number
@@ -154,6 +159,7 @@ export interface PersonDetail {
     id: string
     name: string
     nameCn?: string
+    nameTw?: string
     career: unknown[]
     summary: string
   }

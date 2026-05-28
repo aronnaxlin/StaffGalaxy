@@ -62,6 +62,7 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
       color: colorFromAttrs(node as unknown as Record<string, unknown>),
       name: node.name,
       nameCn: node.nameCn,
+      nameTw: node.nameTw,
       degree: node.degree ?? 0,
       visibleWeightedDegree: node.visibleWeightedDegree,
       roleLayer: node.roleLayer,
