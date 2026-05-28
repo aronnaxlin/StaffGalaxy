@@ -23,6 +23,7 @@ interface CosmosPayload {
   pointSizes: Float32Array
   edgeRecords: EdgeRecord[]
   nodeLabels: Map<string, string>
+  priorityLabelIndices: number[]
 }
 
 interface EdgeRecord {
@@ -32,9 +33,28 @@ interface EdgeRecord {
   collaborationScore: number
 }
 
+interface PriorityLabel {
+  id: string
+  label: string
+  x: number
+  y: number
+}
+
 const SEARCH_ZOOM_SCALE = 3.8
 const COSMOS_SPACE_SIZE = 8192
 const COSMOS_LAYOUT_SIZE = 4300
+const PRIORITY_LABEL_LIMIT: Record<Level, number> = {
+  global: 10,
+  l0: 12,
+  l1: 12,
+  person: 8,
+}
+const PRIORITY_LABEL_SPACING: Record<Level, number> = {
+  global: 520,
+  l0: 440,
+  l1: 360,
+  person: 280,
+}
 
 function readRgb(value: unknown): [number, number, number] {
   if (typeof value !== 'string') return [212, 215, 223]
@@ -94,7 +114,7 @@ function buildEdgeArrays(edgeRecords: EdgeRecord[], minShared: number, level: Le
   return { links, linkColors, linkWidths, visibleEdgeCount: visibleEdges.length }
 }
 
-function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode): CosmosPayload {
+function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode, level: Level): CosmosPayload {
   const nodeIds = graph.nodes()
   const indexById = new Map(nodeIds.map((id, index) => [id, index]))
   const positions = new Float32Array(nodeIds.length * 2)
@@ -102,6 +122,7 @@ function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode): Cosmo
   const pointColors = new Float32Array(nodeIds.length * 4)
   const pointSizes = new Float32Array(nodeIds.length)
   const nodeLabels = new Map<string, string>()
+  const labelCandidates: { index: number; score: number }[] = []
 
   nodeIds.forEach((nodeId, index) => {
     const attrs = graph.getNodeAttributes(nodeId)
@@ -121,6 +142,15 @@ function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode): Cosmo
     const nameCn = attrs.nameCn as string | undefined
     const nameTw = attrs.nameTw as string | undefined
     nodeLabels.set(nodeId, displayPersonName({ name, nameCn, nameTw }, personNameMode))
+
+    const weightedDegree = Number(attrs.visibleWeightedDegree ?? 0)
+    const degree = Number(attrs.degree ?? 0)
+    const sharedWorksCount = Number(attrs.sharedWorksCount ?? 0)
+    const centerBoost = attrs.isCenter ? 1_000_000 : 0
+    const score = level === 'person'
+      ? centerBoost + sharedWorksCount * 1000 + weightedDegree
+      : weightedDegree || degree
+    labelCandidates.push({ index, score })
   })
 
   const xs = nodeIds.map((_id, index) => rawPositions[index * 2])
@@ -150,7 +180,27 @@ function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode): Cosmo
     }
   })
 
-  return { nodeIds, positions, pointColors, pointSizes, edgeRecords, nodeLabels }
+  const priorityLabelIndices: number[] = []
+  const minLabelDistance = PRIORITY_LABEL_SPACING[level]
+  const sortedLabelCandidates = labelCandidates
+    .filter(candidate => candidate.score > 0)
+    .sort((a, b) => b.score - a.score)
+
+  for (const candidate of sortedLabelCandidates) {
+    const x = positions[candidate.index * 2]
+    const y = positions[candidate.index * 2 + 1]
+    const isFarEnough = priorityLabelIndices.every(index => {
+      const dx = positions[index * 2] - x
+      const dy = positions[index * 2 + 1] - y
+      return dx * dx + dy * dy >= minLabelDistance * minLabelDistance
+    })
+    if (!isFarEnough) continue
+
+    priorityLabelIndices.push(candidate.index)
+    if (priorityLabelIndices.length >= PRIORITY_LABEL_LIMIT[level]) break
+  }
+
+  return { nodeIds, positions, pointColors, pointSizes, edgeRecords, nodeLabels, priorityLabelIndices }
 }
 
 const COSMOS_CONFIG = {
@@ -200,7 +250,8 @@ export function CosmosGalaxyView({
   const hoveredNodeRef = useRef<string | null>(null)
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0)
   const [edgeCutoff, setEdgeCutoff] = useState(() => minSharedForZoom(level, 1, minSharedFloor))
-  const payload = useMemo(() => buildCosmosPayload(graph, personNameMode), [graph, personNameMode])
+  const [priorityLabels, setPriorityLabels] = useState<PriorityLabel[]>([])
+  const payload = useMemo(() => buildCosmosPayload(graph, personNameMode, level), [graph, level, personNameMode])
 
   const focusNode = useCallback((nodeId: string, animate = true) => {
     const cosmos = cosmosRef.current
@@ -235,6 +286,50 @@ export function CosmosGalaxyView({
     setVisibleEdgeCount(arrays.visibleEdgeCount)
   }, [level, minSharedFloor])
 
+  const updatePriorityLabels = useCallback(() => {
+    const cosmos = cosmosRef.current
+    const payload = payloadRef.current
+    const container = containerRef.current
+    if (!cosmos || !payload || !container) {
+      setPriorityLabels([])
+      return
+    }
+
+    const bounds = container.getBoundingClientRect()
+    const labels: PriorityLabel[] = []
+    const boxes: { left: number; right: number; top: number; bottom: number }[] = []
+    for (const index of payload.priorityLabelIndices) {
+      const label = payload.nodeLabels.get(payload.nodeIds[index]) ?? payload.nodeIds[index]
+      const [x, y] = cosmos.spaceToScreenPosition([
+        payload.positions[index * 2],
+        payload.positions[index * 2 + 1],
+      ])
+      const width = Math.min(180, Math.max(52, label.length * 12 + 18))
+      const box = {
+        left: x - width / 2,
+        right: x + width / 2,
+        top: y - 28,
+        bottom: y - 4,
+      }
+      if (box.left < 8 || box.top < 76 || box.right > bounds.width - 8 || box.bottom > bounds.height - 8) continue
+      if (boxes.some(existing => (
+        box.left < existing.right
+        && box.right > existing.left
+        && box.top < existing.bottom
+        && box.bottom > existing.top
+      ))) continue
+
+      boxes.push(box)
+      labels.push({
+        id: payload.nodeIds[index],
+        label,
+        x,
+        y,
+      })
+    }
+    setPriorityLabels(labels)
+  }, [])
+
   // Stable show/hide hover label via DOM — avoids React re-renders on every hover.
   const showHoverLabel = useCallback((nodeId: string | null) => {
     hoveredNodeRef.current = nodeId
@@ -253,6 +348,12 @@ export function CosmosGalaxyView({
   useEffect(() => {
     applyEdgeDensityRef.current = () => applyEdgeDensity()
   }, [applyEdgeDensity])
+
+  useEffect(() => {
+    const handleResize = () => updatePriorityLabels()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [updatePriorityLabels])
 
   useEffect(() => {
     selectedNodeRef.current = selectedNode
@@ -293,6 +394,10 @@ export function CosmosGalaxyView({
       },
       onZoomEnd: () => {
         applyEdgeDensityRef.current?.()
+        updatePriorityLabels()
+      },
+      onDragEnd: () => {
+        updatePriorityLabels()
       },
     })
 
@@ -301,7 +406,7 @@ export function CosmosGalaxyView({
       cosmos.destroy()
       cosmosRef.current = null
     }
-  }, [focusNode, onNodeClick, showHoverLabel])
+  }, [focusNode, onNodeClick, showHoverLabel, updatePriorityLabels])
 
   useEffect(() => {
     const cosmos = cosmosRef.current
@@ -314,6 +419,7 @@ export function CosmosGalaxyView({
     applyEdgeDensity(true)
     window.setTimeout(() => {
       cosmos.fitView(0, 0.18)
+      window.requestAnimationFrame(updatePriorityLabels)
     }, 0)
 
     if (selectedNode && level !== 'person') {
@@ -321,6 +427,7 @@ export function CosmosGalaxyView({
     } else if (level === 'person') {
       window.setTimeout(() => {
         cosmos.fitView(260, 0.28)
+        window.setTimeout(updatePriorityLabels, 280)
       }, 120)
     }
 
@@ -335,8 +442,9 @@ export function CosmosGalaxyView({
         visibleEdges,
         edgeCutoff: edgeCutoffRef.current,
       })
+      updatePriorityLabels()
     })
-  }, [applyEdgeDensity, focusNode, level, payload, selectedNode])
+  }, [applyEdgeDensity, focusNode, level, payload, selectedNode, updatePriorityLabels])
 
   const centerNodeName = level === 'person' && selectedNode && graph.hasNode(selectedNode)
     ? displayPersonName(
@@ -358,6 +466,18 @@ export function CosmosGalaxyView({
         ref={hoverLabelRef}
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[140%] z-20 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-600/50 text-sm text-slate-100 backdrop-blur shadow-lg pointer-events-none whitespace-nowrap opacity-0 transition-opacity duration-75"
       />
+
+      <div className="pointer-events-none absolute inset-0 z-10">
+        {priorityLabels.map(label => (
+          <div
+            key={label.id}
+            className="absolute -translate-x-1/2 -translate-y-[150%] rounded-full border border-slate-600/40 bg-slate-950/65 px-2 py-0.5 text-[11px] leading-tight text-slate-300 shadow-[0_4px_18px_rgba(0,0,0,0.35)] backdrop-blur"
+            style={{ left: label.x, top: label.y }}
+          >
+            {label.label}
+          </div>
+        ))}
+      </div>
 
       <div className="absolute bottom-4 left-4 z-20 rounded border border-slate-700/60 bg-black/50 px-3 py-2 text-xs text-slate-400 backdrop-blur">
         <div className="flex items-center gap-2 mb-1">

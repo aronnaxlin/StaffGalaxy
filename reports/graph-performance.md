@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 12:49 Asia/Shanghai
+Last updated: 2026-05-28 18:12 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,10 +35,10 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-BHCkZX9V.css` | 30.14 KB | 6.07 KB |
-| `dist/assets/index-B41htz54.js` | 291.63 KB | 82.77 KB |
-| `dist/assets/CosmosGalaxyView-D9fv_E44.js` | 360.45 KB | 105.24 KB |
-| `dist/assets/ConstellationView-wqffr0dd.js` | 11.53 KB | 4.18 KB |
+| `dist/assets/index-C01DZ1QV.css` | 30.94 KB | 6.15 KB |
+| `dist/assets/index-BzhgbG_W.js` | 291.63 KB | 82.78 KB |
+| `dist/assets/CosmosGalaxyView-FwBvDpc0.js` | 362.17 KB | 105.94 KB |
+| `dist/assets/ConstellationView-CKUUkGnZ.js` | 11.53 KB | 4.18 KB |
 
 The previous single main JavaScript bundle was `661.94 KB` / `189.53 KB gzip`.
 Cosmos.gl now lives in a lazy route chunk, and the main app bundle is below Vite's default 500 KB warning threshold.
@@ -59,6 +59,11 @@ cd frontend && npm run preview -- --host 127.0.0.1 --port 4173
 ```
 
 Backend was the local FastAPI server on `http://127.0.0.1:8000`.
+
+Additional production-preview smoke after adding priority labels:
+
+- `/` rendered sparse, non-overlapping high-priority labels over the global Cosmos graph and reported no browser console warnings/errors.
+- `/person/1040` rendered sparse labels for `宮崎駿` and key collaborators without covering the side panel; console remained clean.
 
 | Route / action | Main evidence | Browser/API timing |
 |---|---|---:|

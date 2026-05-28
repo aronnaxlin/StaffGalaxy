@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 12:49 Asia/Shanghai
+Last updated: 2026-05-28 18:12 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,17 @@ Last updated: 2026-05-28 12:49 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added sparse priority labels to the Cosmos graph overlay:
+  - Global/l0/l1/person graph payloads now choose high-score label candidates by weighted degree or local collaboration strength.
+  - Candidate selection enforces graph-space separation so the highest-degree central cluster does not collapse into overlapping labels.
+  - Runtime label placement uses `spaceToScreenPosition` plus viewport and rectangle collision checks, keeping labels off the top toolbar and away from each other.
+- Browser smoke checked production preview:
+  - `/` rendered a small set of distributed global labels such as `武智恒雄`, `横山朱子`, `小形尚弘`, `竜騎士07`, and `つなこ`.
+  - `/person/1040` rendered sparse personal labels around `宮崎駿` and key collaborators without covering the side panel.
+  - Console check returned no warnings or errors.
+- Confirmed frontend production build passes: `npm run build`.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added frontend route-level bundle splitting:

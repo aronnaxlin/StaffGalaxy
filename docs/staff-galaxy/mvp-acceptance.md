@@ -49,7 +49,7 @@
 - [x] 点击节点打开详情侧栏，包含合作者列表。
 - [x] 合作详情可展开显示共同作品及双方职位。
 - [x] 个人星系有返回全局视图的按钮。
-- [ ] 默认全局标签（高优先级节点常显名称）。
+- [x] 默认全局标签（高优先级节点常显名称）。
 - [ ] 底部筛选栏（职位层、时间范围、边强度）。
 - [ ] 响应式/移动端布局。
 
@@ -60,7 +60,7 @@
 - [x] 大图渲染通过 zoom-dependent LOD 保持可交互。
 - [x] Hover 使用 DOM 直控，不触发 React re-render。
 - [x] Pixel ratio 封顶 2x。
-- [ ] Bundle splitting（延迟加载 Cosmos.gl）。
+- [x] Bundle splitting（延迟加载 Cosmos.gl）。
 - [ ] 性能仪表盘（传输体积、解析时间、渲染时间）。
 
 ## Search Acceptance
