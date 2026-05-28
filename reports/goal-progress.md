@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 10:56 Asia/Shanghai
+Last updated: 2026-05-28 11:07 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,19 @@ Last updated: 2026-05-28 10:56 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Updated delivery documentation:
+  - `README.md` now includes Python setup, frontend dependency install, database rebuild commands, focused migrations, local dev startup, production preview, shareable route examples, verification commands, environment variables, API overview, and core data semantics.
+  - `docs/staff-galaxy/data-model-and-architecture.md` now documents complete `person_collaboration_edges`, sparse `visible_person_edges`, snapshot/search tables, the current API endpoint layering, direct compare route behavior, frontend data flows, runtime metrics, and rebuild/migration/preview workflows.
+  - `docs/staff-galaxy/implementation-roadmap.md` now reflects completed detail/credits endpoints, alias/fuzzy search, complete-edge pathing, shareable path/compare routes, runtime metrics, and current remaining work.
+- Checked docs for stale claims around `swapGraph`, optional compare routes, and Sigma renderer references. Remaining matches are either historical notes or explicit “removed” records.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
+- Confirmed whitespace check passes: `git diff --check`.
+
+## Previously Verified
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added lightweight frontend runtime instrumentation:
@@ -27,8 +40,6 @@ Last updated: 2026-05-28 10:56 Asia/Shanghai
 - Browser console check after production-preview runtime measurement returned no warnings or errors.
 - Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
 - Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
-
-## Previously Verified
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added first-class direct-compare routing:
@@ -250,11 +261,10 @@ Last updated: 2026-05-28 10:56 Asia/Shanghai
 - UI/design: in progress. Obsidian-like graph style exists, and `docs/DESIGN.md` now records tokens, layout rules, component states, and Bangumi-inspired constraints; implementation still needs further token extraction.
 - Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search. Browser smoke checks cover the link/preference/detail/path-evidence/credit-history/shareable-route surfaces, and production-preview runtime metrics now cover global graph, person graph, compare, path, collaboration expansion, graph endpoint payload timing, and search distribution samples.
 - Routing/history: in progress. Shareable person/path/compare URLs exist and the known browser back divergence between `/path`, `/person/{id}`, and `/` is fixed.
-- Deployment/docs: partial. `.env.example`, `.gitignore`, and README setup/import/test notes improved; deployment remains intentionally local-only.
+- Deployment/docs: partial. `.env.example`, `.gitignore`, README setup/import/test/API/local-preview notes, and architecture/rebuild/migration docs are now aligned with the current implementation; deployment remains intentionally local-only.
 
 ## Next Best Work
 
-- Add richer architecture docs for `person_collaboration_edges`, `/api/person/{id}/detail`, local startup, and rebuild/migration workflow.
 - Extract repeated UI values into shared tokens once the prototype stabilizes.
 - Add traditional-name handling if a verified Archive field is available.
 - Broaden browser runtime measurements across repeated reloads, more people, and drag/zoom/hover interactions.

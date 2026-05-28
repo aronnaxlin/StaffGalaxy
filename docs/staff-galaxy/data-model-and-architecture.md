@@ -116,6 +116,31 @@ CREATE TABLE staff_positions (
 
 ## Visible Graph Model
 
+### person_collaboration_edges
+
+```sql
+CREATE TABLE person_collaboration_edges (
+  source_person_id INTEGER,
+  target_person_id INTEGER,
+  shared_works_count INTEGER,
+  collaboration_score DOUBLE,
+  first_year INTEGER,
+  last_year INTEGER,
+  selection_reason TEXT
+);
+```
+
+This is the complete staff collaboration graph derived from all anime staff
+credits, not the renderer backbone. It includes lower-tier staff collaborations
+that may be hidden from the default galaxy. Direct comparison and shortest-path
+queries use this table so hidden real relationships remain queryable.
+
+Current snapshot:
+
+- 26,017,438 complete staff edges.
+- 41,472,689 shared-work evidence pairs.
+- `selection_reason = 'all_staff'`.
+
 ### visible_person_edges
 
 ```sql
@@ -139,6 +164,9 @@ sharedWorksCount >= 2 OR top 10 strongest neighbors per endpoint
 ```
 
 Current snapshot: ~518,581 edges across ~21,006 people.
+
+`visible_person_edges` is a readability and performance layer. It is not the
+truth source for collaboration existence.
 
 ### graph_nodes
 
@@ -209,9 +237,20 @@ This replaced the old "Tier A only" approach, broadening the graph while maintai
 | `/api/graph/{level}/nodes` | GET | Galaxy nodes (global, l0, l1) |
 | `/api/graph/{level}/edges` | GET | Galaxy edges with sharedWorksCount, collaborationScore |
 | `/api/person/{id}/galaxy` | GET | Person-centered galaxy with data-driven layout |
-| `/api/search/persons` | GET | Search with CJK variant expansion |
+| `/api/person/{id}/detail` | GET | Person summary stats, top roles, and recent works |
+| `/api/person/{id}/credits` | GET | Complete row-level anime credit history with raw roles |
 | `/api/collaboration/{a}/{b}` | GET | Shared works with per-person roles |
 | `/api/path/{a}/{b}` | GET | BFS shortest paths between two people |
+| `/api/search/persons` | GET | Search with aliases, CJK variants, romanization, and bounded fuzzy fallback |
+| `/api/manifest` | GET | DB path, snapshot metadata, level counts |
+
+Endpoint data is intentionally layered:
+
+- Galaxy endpoints use `visible_person_edges` and `graph_nodes`.
+- Person detail and credit endpoints use complete `credits` facts.
+- Collaboration and path endpoints use `person_collaboration_edges` plus
+  evidence joins back to `credits` and `subjects`.
+- Manifest and evidence-bearing endpoints include the current Archive snapshot.
 
 ### Search Design
 
@@ -235,6 +274,22 @@ When simplified Chinese is primary and the original differs, panels and search p
 
 BFS with multi-parent tracking returns all shortest paths. Each path includes node IDs and edge metadata (sharedWorksCount per step). Frontend renders as depth-layered SVG constellation.
 
+The backend BFS expands `person_collaboration_edges`, not `visible_person_edges`.
+This preserves hidden low-tier relationships for path and compare workflows.
+
+### Direct Comparison
+
+`/compare?from={id}&to={id}` is a frontend route for the same Constellation
+surface in comparison mode. It first loads both person search entries, then:
+
+1. Calls `/api/path/{a}/{b}` to establish whether a connection exists.
+2. If the shortest path degree is `1`, calls `/api/collaboration/{a}/{b}` and
+   renders direct shared-work evidence before the path legend.
+3. If the shortest path degree is greater than `1`, shows a no-direct-evidence
+   notice and renders shortest paths.
+
+Person-panel collaborator rows can open this route directly.
+
 ## Detail Views
 
 ```sql
@@ -256,15 +311,92 @@ App.tsx (mount)
 
 User clicks node
   → loadPersonGalaxy(id) →  GET /api/person/{id}/galaxy
-  → swapGraph()          →  mutate existing Graphology instance
-  → NodePanel opens      →  sidebar with neighbor list
+  → buildGraph()         →  replace Graphology instance for local galaxy
+  → NodePanel opens      →  summary, complete credits, neighbor list
 
 User expands collaboration
   → loadCollaborationDetail(a, b) → GET /api/collaboration/{a}/{b}
   → shows shared works, roles, years
 
-User opens constellation
-  → ConstellationView    →  two SearchBars
+User expands complete credits
+  → loadPersonCredits(id) → GET /api/person/{id}/credits?limit=2000
+  → groups raw credit rows by anime work
+
+User opens path route
+  → /path?from={a}&to={b}
+  → ConstellationView    →  two locked SearchBars
   → loadShortestPath(a,b) → GET /api/path/{a}/{b}
   → SVG rendering        →  Bezier curves connecting depth-layered nodes
+
+User opens compare route
+  → /compare?from={a}&to={b}
+  → loadShortestPath(a,b)
+  → degree 1: loadCollaborationDetail(a,b)
+  → degree 2+: show no-direct evidence notice and shortest paths
 ```
+
+### Runtime Metrics
+
+The frontend records lightweight runtime measurements in
+`window.__staffGalaxyMetrics` and emits `staff-galaxy:metric` events.
+
+Current metric types:
+
+- `api-response`: URL, status, success flag, and request duration.
+- `cosmos-ready`: graph level, node count, total edges, visible edges, and edge cutoff.
+
+These metrics are used by `reports/graph-performance.md` to record production
+preview behavior for global graph, person graph, compare, path, and detail
+interactions.
+
+## Local Rebuild And Migration Workflow
+
+Full rebuild:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/python -m staff_galaxy.cli
+```
+
+The full rebuild:
+
+1. Recreates the DuckDB schema.
+2. Ingests Bangumi Archive subjects, persons, positions, staff credits, and cast.
+3. Rebuilds complete `person_collaboration_edges`.
+4. Rebuilds sparse `visible_person_edges`.
+5. Rebuilds `graph_nodes`.
+6. Rebuilds `person_search_terms`.
+7. Records the current `data_snapshots` row.
+8. Writes `reports/data-audit.md`.
+
+Focused migrations for an existing local DB:
+
+```bash
+.venv/bin/python scripts/migrate_role_weights.py
+.venv/bin/python scripts/migrate_search_index.py
+.venv/bin/python scripts/migrate_data_snapshot.py
+```
+
+`migrate_role_weights.py` backs up the local DuckDB file before rebuilding
+derived role weights, complete edges, visible edges, graph nodes, search terms,
+and indexes.
+
+## Local Runtime Workflow
+
+Development:
+
+```bash
+.venv/bin/uvicorn staff_galaxy.api:app --reload --host 127.0.0.1 --port 8000
+cd frontend && npm run dev -- --host 127.0.0.1
+```
+
+Production preview for measurements:
+
+```bash
+cd frontend
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173
+```
+
+Vite dev and preview both proxy `/api` to `http://127.0.0.1:8000`.
