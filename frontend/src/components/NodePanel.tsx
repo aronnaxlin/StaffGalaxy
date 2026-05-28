@@ -29,6 +29,10 @@ interface NodePanelProps {
   nodeAttrs: Record<string, unknown>
   neighbors: NeighborInfo[]
   neighborTotal: number
+  neighborLimit: number
+  neighborMinShared: number
+  onNeighborLimitChange: (limit: number) => void
+  onNeighborMinSharedChange: (minShared: number) => void
   personNameMode: PersonNameMode
   onPersonNameModeChange: (mode: PersonNameMode) => void
   onClose: () => void
@@ -37,8 +41,24 @@ interface NodePanelProps {
 }
 
 type SubjectNameMode = 'original' | 'cn'
+type NeighborRoleFilter = 'all' | 'sab' | 'cd' | 'ef'
+type NeighborTimeFilter = 'all' | 'recent10' | 'since2010' | 'since2000'
 
 const SUBJECT_NAME_MODE_KEY = 'staffGalaxy.subjectNameMode'
+const NEIGHBOR_LIMIT_OPTIONS = [60, 120, 240] as const
+const NEIGHBOR_MIN_SHARED_OPTIONS = [1, 3, 5, 10] as const
+const ROLE_FILTERS: { value: NeighborRoleFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'sab', label: 'SAB' },
+  { value: 'cd', label: 'CD' },
+  { value: 'ef', label: 'EF' },
+]
+const TIME_FILTERS: { value: NeighborTimeFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'recent10', label: '近10年' },
+  { value: 'since2010', label: '2010+' },
+  { value: 'since2000', label: '2000+' },
+]
 
 function getInitialSubjectNameMode(): SubjectNameMode {
   const stored = window.localStorage.getItem(SUBJECT_NAME_MODE_KEY)
@@ -59,6 +79,23 @@ function yearRange(first: number | null, latest: number | null) {
   if (!first && !latest) return null
   if (first && latest && first !== latest) return `${first}–${latest}`
   return String(first ?? latest)
+}
+
+function matchesRoleFilter(neighborRoleTier: unknown, filter: NeighborRoleFilter) {
+  if (filter === 'all') return true
+  const tier = String(neighborRoleTier ?? '').match(/[SABCDEF]/)?.[0]
+  if (!tier) return false
+  if (filter === 'sab') return tier === 'S' || tier === 'A' || tier === 'B'
+  if (filter === 'cd') return tier === 'C' || tier === 'D'
+  return tier === 'E' || tier === 'F'
+}
+
+function matchesTimeFilter(lastYear: number | undefined, filter: NeighborTimeFilter) {
+  if (filter === 'all') return true
+  if (!lastYear) return false
+  if (filter === 'recent10') return lastYear >= new Date().getFullYear() - 10
+  if (filter === 'since2010') return lastYear >= 2010
+  return lastYear >= 2000
 }
 
 function snapshotLabel(detail: PersonDetail | PersonCreditsResponse | CollaborationDetail | null) {
@@ -370,6 +407,10 @@ export function NodePanel({
   nodeAttrs,
   neighbors,
   neighborTotal,
+  neighborLimit,
+  neighborMinShared,
+  onNeighborLimitChange,
+  onNeighborMinSharedChange,
   personNameMode,
   onPersonNameModeChange,
   onClose,
@@ -393,6 +434,16 @@ export function NodePanel({
   const [personCreditsOpen, setPersonCreditsOpen] = useState(false)
   const [personCreditsLoading, setPersonCreditsLoading] = useState(false)
   const [subjectNameMode, setSubjectNameMode] = useState<SubjectNameMode>(getInitialSubjectNameMode)
+  const [neighborRoleFilter, setNeighborRoleFilter] = useState<NeighborRoleFilter>('all')
+  const [neighborTimeFilter, setNeighborTimeFilter] = useState<NeighborTimeFilter>('all')
+
+  const filteredNeighbors = useMemo(
+    () => neighbors.filter(neighbor => (
+      matchesRoleFilter(neighbor.attrs.neighborRoleTier, neighborRoleFilter)
+      && matchesTimeFilter(neighbor.lastYear, neighborTimeFilter)
+    )),
+    [neighborRoleFilter, neighborTimeFilter, neighbors],
+  )
 
   useEffect(() => {
     window.localStorage.setItem(SUBJECT_NAME_MODE_KEY, subjectNameMode)
@@ -519,17 +570,94 @@ export function NodePanel({
         onToggle={() => void handleToggleCredits()}
       />
 
+      <div className={`${panelSoft} mb-3 shrink-0 p-3`}>
+        <div className={`${sectionLabel} mb-2`}>合作者筛选</div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-500">边强度</span>
+            <div className={segmentedGroupClass}>
+              {NEIGHBOR_MIN_SHARED_OPTIONS.map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onNeighborMinSharedChange(value)}
+                  className={segmentedButtonClass(neighborMinShared === value, 'cyan')}
+                  title={`只加载共同作品数 >= ${value} 的一跳合作者`}
+                >
+                  {value}+
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-500">显示数</span>
+            <div className={segmentedGroupClass}>
+              {NEIGHBOR_LIMIT_OPTIONS.map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onNeighborLimitChange(value)}
+                  className={segmentedButtonClass(neighborLimit === value, 'slate')}
+                  title={`加载前 ${value} 位合作者`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-500">合作者职位</span>
+            <div className={segmentedGroupClass}>
+              {ROLE_FILTERS.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setNeighborRoleFilter(option.value)}
+                  className={segmentedButtonClass(neighborRoleFilter === option.value, 'pink')}
+                  title="按该合作者在共享作品中的最高职位 tier 过滤面板列表"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-500">时间</span>
+            <div className={segmentedGroupClass}>
+              {TIME_FILTERS.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setNeighborTimeFilter(option.value)}
+                  className={segmentedButtonClass(neighborTimeFilter === option.value, 'slate')}
+                  title="按最后一次共同作品年份过滤面板列表"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Neighbor list header */}
       <div className="mb-2 flex shrink-0 items-center justify-between text-xs text-slate-500">
         <span className={sectionLabel}>按合作次数排序</span>
-        {neighborTotal > neighbors.length && (
-          <span>前 {neighbors.length} / {neighborTotal}</span>
+        {neighborTotal > filteredNeighbors.length && (
+          <span>
+            {filteredNeighbors.length} / {neighborTotal}
+          </span>
         )}
       </div>
 
       {/* Neighbor list */}
       <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
-        {neighbors.map(({ id, attrs, sharedWorksCount, collaborationScore, firstYear, lastYear }) => {
+        {filteredNeighbors.length === 0 && (
+          <li className="rounded-lg border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-xs text-slate-500">
+            当前筛选下没有可显示的一跳合作者。
+          </li>
+        )}
+        {filteredNeighbors.map(({ id, attrs, sharedWorksCount, collaborationScore, firstYear, lastYear }) => {
           const isExpanded = expandedId === id
           const neighborName = attrs.name as string
           const neighborNameCn = attrs.nameCn as string | undefined

@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 12:03 Asia/Shanghai
+Last updated: 2026-05-28 12:33 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,24 @@ Last updated: 2026-05-28 12:03 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added personal-galaxy one-hop display controls in the Bangumi-inspired side panel:
+  - `边强度` reloads `/api/person/{id}/galaxy` with bounded `min_shared` values (`1+`, `3+`, `5+`, `10+`).
+  - `显示数` reloads the personal galaxy with bounded limits (`60`, `120`, `240`) and caches by person/limit/min-shared.
+  - `合作者职位` filters the visible collaborator list by the collaborator's highest role tier in shared works (`SAB`, `CD`, `EF`), returned as `neighborRoleTier` from the API.
+  - `时间` filters the panel list by the latest shared-work year (`近10年`, `2010+`, `2000+`).
+- Fixed two evidence/renderer mismatches found during smoke checks:
+  - Role filtering no longer uses `graph_nodes.role_layer`, which is only the renderer layer (`Weight >=12.0`) and not a person-role fact.
+  - Graphology edge attributes now preserve `firstYear` and `lastYear`, so row year labels and time filters use real edge evidence.
+- Browser smoke checked production preview on `/person/1040`:
+  - Switching to `3+` and `60` triggered `/api/person/1040/galaxy?limit=60&min_shared=3`.
+  - The lower-left legend updated to `min shared works: 3`.
+  - `SAB` showed 29 loaded collaborators; `CD` showed the empty-state message for this filtered sample.
+  - `近10年` narrowed the list to 6 / 29 collaborators with recent shared works.
+  - Console check returned no warnings or errors.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added Archive-backed traditional Chinese person-name support:

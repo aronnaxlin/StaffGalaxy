@@ -28,7 +28,13 @@ function colorFromAttrs(attrs: Record<string, unknown>): string {
   return `rgb(${v},${v},${v})`
 }
 
-function edgeStyle(sharedWorksCount: number, collaborationScore: number | undefined, level: Level) {
+function edgeStyle(
+  sharedWorksCount: number,
+  collaborationScore: number | undefined,
+  level: Level,
+  firstYear?: number,
+  lastYear?: number,
+) {
   const score = collaborationScore ?? sharedWorksCount
   const t = Math.min(1, Math.log10(1 + score) / 2.2)
 
@@ -49,6 +55,8 @@ function edgeStyle(sharedWorksCount: number, collaborationScore: number | undefi
     color: `rgba(148,163,184,${alpha.toFixed(3)})`,
     sharedWorksCount,
     collaborationScore: score,
+    firstYear,
+    lastYear,
   }
 }
 
@@ -70,6 +78,7 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
       collaborationScore: node.collaborationScore,
       firstYear: node.firstYear,
       lastYear: node.lastYear,
+      neighborRoleTier: node.neighborRoleTier,
     }
     if (node.isCenter) attrs.isCenter = true
     graph.addNode(node.id, attrs)
@@ -85,7 +94,7 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
           key,
           edge.source,
           edge.target,
-          edgeStyle(edge.sharedWorksCount, edge.collaborationScore, level),
+          edgeStyle(edge.sharedWorksCount, edge.collaborationScore, level, edge.firstYear, edge.lastYear),
         )
       }
     }

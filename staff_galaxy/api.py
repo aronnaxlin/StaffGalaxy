@@ -275,6 +275,18 @@ def person_galaxy(
                 AND e.shared_works_count >= ?
               ORDER BY e.shared_works_count DESC, e.collaboration_score DESC, neighbor_id
               LIMIT ?
+            ),
+            neighbor_roles AS (
+              SELECT
+                i.neighbor_id,
+                ARG_MAX(nc.role_tier, nc.role_weight) AS neighbor_role_tier
+              FROM incident i
+              JOIN credits center_credit
+                ON center_credit.person_id = ?
+              JOIN credits nc
+                ON nc.subject_id = center_credit.subject_id
+               AND nc.person_id = i.neighbor_id
+              GROUP BY i.neighbor_id
             )
             SELECT
               i.neighbor_id::TEXT AS id,
@@ -288,13 +300,15 @@ def person_galaxy(
               i.collaboration_score,
               i.first_year,
               i.last_year,
-              i.selection_reason
+              i.selection_reason,
+              nr.neighbor_role_tier
             FROM incident i
             JOIN graph_nodes g ON g.person_id = i.neighbor_id
             JOIN persons p ON p.id = i.neighbor_id
+            LEFT JOIN neighbor_roles nr ON nr.neighbor_id = i.neighbor_id
             ORDER BY i.shared_works_count DESC, i.collaboration_score DESC, i.neighbor_id
             """,
-            [person_id, person_id, person_id, min_shared, limit],
+            [person_id, person_id, person_id, min_shared, limit, person_id],
         ).fetchall()
 
     center_id = str(center[0])
@@ -355,6 +369,7 @@ def person_galaxy(
                 "collaborationScore": round(row[8], 2),
                 "firstYear": row[9],
                 "lastYear": row[10],
+                "neighborRoleTier": row[12],
             }
         )
         edges.append(

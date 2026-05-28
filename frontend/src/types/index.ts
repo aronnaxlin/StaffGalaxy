@@ -14,6 +14,7 @@ export interface GalaxyNode {
   collaborationScore?: number
   firstYear?: number
   lastYear?: number
+  neighborRoleTier?: string
 }
 
 export interface GalaxyEdge {

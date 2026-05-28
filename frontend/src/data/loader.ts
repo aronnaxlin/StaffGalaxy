@@ -77,9 +77,22 @@ export async function loadPersonSearchEntry(personId: string): Promise<SearchEnt
   return results[0] ?? null
 }
 
-export async function loadPersonGalaxy(personId: string): Promise<LevelData> {
-  const data = await fetchJson<PersonGalaxyResponse>(`/api/person/${personId}/galaxy`)
-  return {
+const personGalaxyCache = new Map<string, LevelData>()
+
+export async function loadPersonGalaxy(
+  personId: string,
+  options: { limit?: number; minShared?: number } = {},
+): Promise<LevelData> {
+  const limit = options.limit ?? 220
+  const minShared = options.minShared ?? 1
+  const cacheKey = `${personId}|${limit}|${minShared}`
+  const cached = personGalaxyCache.get(cacheKey)
+  if (cached) return cached
+
+  const data = await fetchJson<PersonGalaxyResponse>(
+    `/api/person/${personId}/galaxy?limit=${limit}&min_shared=${minShared}`,
+  )
+  const levelData: LevelData = {
     nodes: data.nodes,
     edges: data.edges.map(e => ({
       source: e.source,
@@ -91,6 +104,8 @@ export async function loadPersonGalaxy(personId: string): Promise<LevelData> {
       selectionReason: e.selectionReason,
     })),
   }
+  personGalaxyCache.set(cacheKey, levelData)
+  return levelData
 }
 
 const personDetailCache = new Map<string, PersonDetail>()

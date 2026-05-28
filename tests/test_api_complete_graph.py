@@ -170,6 +170,8 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(nodes[0]["nameTw"], "宮崎駿")
         self.assertEqual(center["nodes"][0]["nameCn"], "宫崎骏")
         self.assertEqual(center["nodes"][0]["nameTw"], "宮崎駿")
+        visible_neighbor = next(node for node in center["nodes"] if node["id"] == "3")
+        self.assertEqual(visible_neighbor["neighborRoleTier"], "B")
         self.assertEqual(
             next(person for person in path["people"] if person["id"] == "1")["nameCn"],
             "宫崎骏",

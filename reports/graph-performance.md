@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 12:03 Asia/Shanghai
+Last updated: 2026-05-28 12:33 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,8 +35,8 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-BNJI9o8q.css` | 29.75 KB | 6.04 KB |
-| `dist/assets/index-BFbrIZ-Y.js` | 657.09 KB | 188.09 KB |
+| `dist/assets/index-DURoChlF.css` | 29.93 KB | 6.05 KB |
+| `dist/assets/index-BPlNwWeE.js` | 660.28 KB | 189.04 KB |
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
@@ -95,6 +95,12 @@ Additional production-preview route smoke:
   - Search `神前曉` returned `3287 / 神前暁`, `nameCn=神前晓`, `nameTw=神前曉`.
   - `/api/graph/global/nodes` payloads include `nameTw`.
   - Browser production preview showed the `繁中` toolbar toggle, re-rendered the search row as `神前曉` / `神前暁`, and opened `/person/3287`.
+  - Console check returned no warnings or errors.
+- Personal-galaxy filter smoke:
+  - `/person/1040` initially loaded the default personal galaxy, then `边强度 3+` and `显示数 60` triggered `/api/person/1040/galaxy?limit=60&min_shared=3`.
+  - The renderer legend updated to `min shared works: 3`, with 30 people and 29 edges in the filtered graph.
+  - `合作者职位 SAB` displayed 29 loaded collaborators; `合作者职位 CD` displayed the empty-state message for this sample.
+  - `时间 近10年` narrowed the list to 6 / 29 collaborators.
   - Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):

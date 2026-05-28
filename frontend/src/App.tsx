@@ -14,7 +14,8 @@ type ViewMode = 'galaxy' | 'constellation'
 type ConstellationMode = 'path' | 'compare'
 type GraphLevel = Exclude<Level, 'person'>
 
-const PANEL_NEIGHBOR_LIMIT = 120
+const PERSON_GALAXY_LIMIT_DEFAULT = 120
+const PERSON_GALAXY_MIN_SHARED_DEFAULT = 1
 
 const GRAPH_LEVELS: GraphLevel[] = ['global', 'l0', 'l1']
 
@@ -129,6 +130,8 @@ export default function App() {
   const [route, setRoute] = useState<AppRoute>(readRoute)
   const [view, setView] = useState<ViewMode>(() => route.view)
   const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
+  const [personGalaxyLimit, setPersonGalaxyLimit] = useState(PERSON_GALAXY_LIMIT_DEFAULT)
+  const [personGalaxyMinShared, setPersonGalaxyMinShared] = useState(PERSON_GALAXY_MIN_SHARED_DEFAULT)
 
   useEffect(() => {
     window.localStorage.setItem(PERSON_NAME_MODE_KEY, personNameMode)
@@ -174,7 +177,10 @@ export default function App() {
 
       if (route.personId) {
         try {
-          const data = await loadPersonGalaxy(route.personId)
+          const data = await loadPersonGalaxy(route.personId, {
+            limit: personGalaxyLimit,
+            minShared: personGalaxyMinShared,
+          })
           if (cancelled) return
           setGraph(buildGraph(data, 'person'))
           setLevel('person')
@@ -205,7 +211,7 @@ export default function App() {
 
     void applyRoute()
     return () => { cancelled = true }
-  }, [route])
+  }, [personGalaxyLimit, personGalaxyMinShared, route])
 
   const handleNodeClick = useCallback((nodeId: string) => {
     void loadPersonView(nodeId)
@@ -270,7 +276,7 @@ export default function App() {
         }
       })
       .sort((a, b) => b.sharedWorksCount - a.sharedWorksCount)
-      .slice(0, PANEL_NEIGHBOR_LIMIT)
+      .slice(0, personGalaxyLimit)
     : []
 
   const selectedNodeNeighborTotal = selectedNode && graph?.hasNode(selectedNode)
@@ -319,6 +325,7 @@ export default function App() {
           level={level}
           selectedNode={selectedNode}
           personNameMode={personNameMode}
+          minSharedFloor={level === 'person' ? personGalaxyMinShared : undefined}
           onBackToGlobal={() => loadGraphLevelView('global')}
         />
       )}
@@ -363,6 +370,10 @@ export default function App() {
           nodeAttrs={selectedNodeAttrs}
           neighbors={selectedNodeNeighbors}
           neighborTotal={selectedNodeNeighborTotal}
+          neighborLimit={personGalaxyLimit}
+          neighborMinShared={personGalaxyMinShared}
+          onNeighborLimitChange={setPersonGalaxyLimit}
+          onNeighborMinSharedChange={setPersonGalaxyMinShared}
           personNameMode={personNameMode}
           onPersonNameModeChange={setPersonNameMode}
           onClose={() => setSelectedNode(null)}

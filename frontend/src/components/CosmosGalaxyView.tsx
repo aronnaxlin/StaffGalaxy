@@ -12,6 +12,7 @@ interface CosmosGalaxyViewProps {
   level: Level
   selectedNode: string | null
   personNameMode: PersonNameMode
+  minSharedFloor?: number
   onBackToGlobal: () => void
 }
 
@@ -42,8 +43,8 @@ function readRgb(value: unknown): [number, number, number] {
   return [Number(match[1]), Number(match[2]), Number(match[3])]
 }
 
-function minSharedForZoom(level: Level, zoom: number): number {
-  if (level === 'person') return 1
+function minSharedForZoom(level: Level, zoom: number, minSharedFloor = 1): number {
+  if (level === 'person') return minSharedFloor
 
   if (level === 'global') {
     if (zoom > 0.9) return 40
@@ -186,18 +187,19 @@ export function CosmosGalaxyView({
   level,
   selectedNode,
   personNameMode,
+  minSharedFloor = 1,
   onBackToGlobal,
 }: CosmosGalaxyViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const cosmosRef = useRef<CosmosGraph | null>(null)
   const payloadRef = useRef<CosmosPayload | null>(null)
   const selectedNodeRef = useRef<string | null>(selectedNode)
-  const edgeCutoffRef = useRef(minSharedForZoom(level, 1))
+  const edgeCutoffRef = useRef(minSharedForZoom(level, 1, minSharedFloor))
   const applyEdgeDensityRef = useRef<(() => void) | null>(null)
   const hoverLabelRef = useRef<HTMLDivElement | null>(null)
   const hoveredNodeRef = useRef<string | null>(null)
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0)
-  const [edgeCutoff, setEdgeCutoff] = useState(() => minSharedForZoom(level, 1))
+  const [edgeCutoff, setEdgeCutoff] = useState(() => minSharedForZoom(level, 1, minSharedFloor))
   const payload = useMemo(() => buildCosmosPayload(graph, personNameMode), [graph, personNameMode])
 
   const focusNode = useCallback((nodeId: string, animate = true) => {
@@ -219,7 +221,7 @@ export function CosmosGalaxyView({
     const payload = payloadRef.current
     if (!cosmos || !payload) return
 
-    const nextCutoff = minSharedForZoom(level, cosmos.getZoomLevel())
+    const nextCutoff = minSharedForZoom(level, cosmos.getZoomLevel(), minSharedFloor)
     if (!force && edgeCutoffRef.current === nextCutoff) return
 
     const arrays = buildEdgeArrays(payload.edgeRecords, nextCutoff, level)
@@ -231,7 +233,7 @@ export function CosmosGalaxyView({
     edgeCutoffRef.current = nextCutoff
     setEdgeCutoff(nextCutoff)
     setVisibleEdgeCount(arrays.visibleEdgeCount)
-  }, [level])
+  }, [level, minSharedFloor])
 
   // Stable show/hide hover label via DOM — avoids React re-renders on every hover.
   const showHoverLabel = useCallback((nodeId: string | null) => {
