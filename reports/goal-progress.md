@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 10:46 Asia/Shanghai
+Last updated: 2026-05-28 10:56 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,24 @@ Last updated: 2026-05-28 10:46 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Added lightweight frontend runtime instrumentation:
+  - API responses now record URL, status, duration, and success in `window.__staffGalaxyMetrics`.
+  - Cosmos graph readiness now records level, node count, total edges, visible edges, and edge cutoff.
+  - Vite preview now proxies `/api` to the local FastAPI backend, enabling production-build runtime measurements without a separate reverse proxy.
+- Measured production-preview runtime behavior and updated `reports/graph-performance.md`:
+  - Global `/` reaches `cosmos-ready` in 824.4 ms with 21,006 nodes and 3,797 total edges.
+  - `/person/1040` reaches person `cosmos-ready` in 185.9 ms with 94 nodes and 93 edges.
+  - Expanding `宮崎駿` ↔ `鈴木敏夫` collaboration evidence took 189.7 ms through the preview browser proxy.
+  - `/compare?from=1040&to=2215` reached direct collaboration evidence in 402.1 ms.
+  - `/path?from=1040&to=11706` reached a rendered 2-degree path in 3,049.0 ms.
+  - API timings for `global`/`l0`/`l1` graph endpoints and five-query search distribution samples are now recorded.
+- Browser console check after production-preview runtime measurement returned no warnings or errors.
+- Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
+
+## Previously Verified
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added first-class direct-compare routing:
@@ -27,8 +45,6 @@ Last updated: 2026-05-28 10:46 Asia/Shanghai
 - Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
 - Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
 - Confirmed whitespace check passes: `git diff --check`.
-
-## Previously Verified
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added bounded fuzzy search:
@@ -232,7 +248,7 @@ Last updated: 2026-05-28 10:46 Asia/Shanghai
 - Path: in progress. Backend now uses `person_collaboration_edges`, not `visible_person_edges`; frontend constellation view shows shortest paths and expandable per-hop evidence, and path URLs can be shared.
 - Information panel/external links: in progress. Search results, selected search pills, person detail footer, shared-work cards, and constellation path labels now expose Bangumi links; person/detail/collaboration evidence surfaces now include snapshot metadata; subject display preference and person display-name preference exist with localStorage-backed toggles. Traditional-name mode remains pending because no verified source field has been wired yet.
 - UI/design: in progress. Obsidian-like graph style exists, and `docs/DESIGN.md` now records tokens, layout rules, component states, and Bangumi-inspired constraints; implementation still needs further token extraction.
-- Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search, and browser smoke checks cover the new link/preference/detail/path-evidence/credit-history/shareable-route surfaces.
+- Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search. Browser smoke checks cover the link/preference/detail/path-evidence/credit-history/shareable-route surfaces, and production-preview runtime metrics now cover global graph, person graph, compare, path, collaboration expansion, graph endpoint payload timing, and search distribution samples.
 - Routing/history: in progress. Shareable person/path/compare URLs exist and the known browser back divergence between `/path`, `/person/{id}`, and `/` is fixed.
 - Deployment/docs: partial. `.env.example`, `.gitignore`, and README setup/import/test notes improved; deployment remains intentionally local-only.
 
@@ -240,5 +256,5 @@ Last updated: 2026-05-28 10:46 Asia/Shanghai
 
 - Add richer architecture docs for `person_collaboration_edges`, `/api/person/{id}/detail`, local startup, and rebuild/migration workflow.
 - Extract repeated UI values into shared tokens once the prototype stabilizes.
-- Add traditional-name handling if a verified Archive field is available, plus broader browser runtime measurements for graph levels.
-- Measure browser runtime behavior and record it in `reports/graph-performance.md`.
+- Add traditional-name handling if a verified Archive field is available.
+- Broaden browser runtime measurements across repeated reloads, more people, and drag/zoom/hover interactions.

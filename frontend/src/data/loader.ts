@@ -7,6 +7,7 @@ import type {
   PersonDetail,
   PersonCreditsResponse,
 } from '../types'
+import { recordRuntimeMetric } from './runtimeMetrics'
 
 interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string }
 
@@ -26,7 +27,15 @@ interface PersonGalaxyResponse {
 const cache: Partial<Record<Level, LevelData>> = {}
 
 async function fetchJson<T>(url: string): Promise<T> {
+  const startedAt = performance.now()
   const response = await fetch(url)
+  const durationMs = Math.round((performance.now() - startedAt) * 10) / 10
+  recordRuntimeMetric('api-response', {
+    url,
+    status: response.status,
+    durationMs,
+    ok: response.ok,
+  })
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status} ${url}`)
   }

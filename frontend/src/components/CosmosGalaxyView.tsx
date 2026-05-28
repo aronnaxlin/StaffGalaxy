@@ -4,6 +4,7 @@ import Graph from 'graphology'
 import type { Level } from '../data/loader'
 import { displayPersonName } from '../data/personNames'
 import type { PersonNameMode } from '../types'
+import { recordRuntimeMetric } from '../data/runtimeMetrics'
 
 interface CosmosGalaxyViewProps {
   graph: Graph
@@ -319,6 +320,19 @@ export function CosmosGalaxyView({
         cosmos.fitView(260, 0.28)
       }, 120)
     }
+
+    window.requestAnimationFrame(() => {
+      const visibleEdges = payload.edgeRecords.filter(
+        edge => edge.sharedWorksCount >= edgeCutoffRef.current,
+      ).length
+      recordRuntimeMetric('cosmos-ready', {
+        level,
+        nodes: payload.nodeIds.length,
+        totalEdges: payload.edgeRecords.length,
+        visibleEdges,
+        edgeCutoff: edgeCutoffRef.current,
+      })
+    })
   }, [applyEdgeDensity, focusNode, level, payload, selectedNode])
 
   const centerNodeName = level === 'person' && selectedNode && graph.hasNode(selectedNode)

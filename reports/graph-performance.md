@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 10:44 Asia/Shanghai
+Last updated: 2026-05-28 10:56 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -36,9 +36,53 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
 | `dist/assets/index-DvZ06imf.css` | 28.89 KB | 5.87 KB |
-| `dist/assets/index-D5oST6Ra.js` | 655.12 KB | 187.25 KB |
+| `dist/assets/index-CoTyauR5.js` | 655.78 KB | 187.47 KB |
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
+
+## Runtime Metrics
+
+The frontend now records lightweight browser runtime metrics in
+`window.__staffGalaxyMetrics` and dispatches `staff-galaxy:metric` events for:
+
+- `api-response`: URL, HTTP status, request duration, and success flag.
+- `cosmos-ready`: graph level, node count, total edges, visible edges, and current edge cutoff after Cosmos receives graph data.
+
+Measured against production preview:
+
+```bash
+cd frontend && npm run build
+cd frontend && npm run preview -- --host 127.0.0.1 --port 4173
+```
+
+Backend was the local FastAPI server on `http://127.0.0.1:8000`.
+
+| Route / action | Main evidence | Browser/API timing |
+|---|---|---:|
+| `/` | `cosmos-ready`, global, 21,006 nodes, 3,797 total edges, 144 visible at cutoff 40 | 824.4 ms from navigation start |
+| `/api/graph/global/nodes` | 3.88 MB, 21,006 rows | 236.2 ms via direct API timing; 355.2 ms through preview browser proxy |
+| `/api/graph/global/edges` | 0.59 MB, 3,797 rows | 33.5 ms via direct API timing; 203.1 ms through preview browser proxy |
+| `/api/graph/l0/nodes` | 0.27 MB, 1,477 rows | 31.1 ms |
+| `/api/graph/l0/edges` | 19.44 MB, 134,931 rows | 376.0 ms |
+| `/api/graph/l1/nodes` | 0.81 MB, 4,422 rows | 75.5 ms |
+| `/api/graph/l1/edges` | 17.72 MB, 119,441 rows | 288.0 ms |
+| `/person/1040` | `cosmos-ready`, person, 94 nodes, 93 edges | 185.9 ms from navigation start |
+| `/api/person/1040/detail` | summary stats and recent works | 92.5 ms through preview browser proxy |
+| Expand `宮崎駿` ↔ `鈴木敏夫` collaboration | `/api/collaboration/1040/2215` | 189.7 ms through preview browser proxy |
+| `/compare?from=1040&to=2215` | direct compare, 31 shared works | 402.1 ms to collaboration evidence; path API 217.4 ms |
+| `/path?from=1040&to=11706` | 2-degree non-direct path | 3,049.0 ms to rendered path; path API 3,015.9 ms |
+
+Production preview console check after this measurement returned no warnings or errors.
+
+Search distribution sample against the local FastAPI server (`5` runs per query):
+
+| Query | Median | Max observed | Notes |
+|---|---:|---:|---|
+| `zzzz-not-a-person-xyz` | 65.0 ms | 152.5 ms | no-result ASCII query |
+| `不存在的人物测试` | 53.6 ms | 65.7 ms | no-result CJK query |
+| `Miyazki Hayao` | 72.9 ms | 100.4 ms | romanized typo, intended person first |
+| `宫崎俊` | 69.1 ms | 74.5 ms | ambiguous one-edit CJK typo |
+| `1040` | 49.4 ms | 50.3 ms | numeric ID exact query |
 
 ## Smoke Timings
 
@@ -104,8 +148,6 @@ Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected 
 
 ## Pending Measurements
 
-- Browser first render and interaction timing for global/l0/l1 graph levels.
-- Search latency distribution for no-result cases and broader percentile samples.
-- Person-centered galaxy load time for high-degree and low-degree people.
-- Detail panel collaboration expansion timing.
-- Console/runtime checks in the browser.
+- Broader browser samples across multiple reloads and hardware states.
+- Person-centered galaxy load time for several high-degree and low-degree people beyond `宮崎駿`.
+- Interaction timing for drag/zoom/hover behavior inside Cosmos.
