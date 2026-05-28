@@ -11,16 +11,11 @@
   },
   "dependencies": {
     "@cosmos.gl/graph": "^2.6.4",
-    "@react-sigma/core": "5.0.6",
     "@tailwindcss/vite": "4.3.0",
     "graphology": "0.26.0",
-    "graphology-communities-louvain": "2.0.2",
-    "graphology-layout-forceatlas2": "0.10.1",
-    "graphology-shortest-path": "2.1.0",
     "graphology-types": "0.24.7",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "sigma": "3.0.2",
     "tailwindcss": "4.3.0"
   },
   "devDependencies": {

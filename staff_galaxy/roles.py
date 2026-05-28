@@ -23,81 +23,7 @@ class RoleDefinition:
     role_weight: float
 
 
-EXPLICIT_ROLE_DEFINITIONS: dict[int, RoleDefinition] = {
-    2: RoleDefinition(2, "director", "A", 10.0),
-    74: RoleDefinition(74, "director", "A", 10.0),
-    72: RoleDefinition(72, "assistant_director", "A", 8.0),
-    10: RoleDefinition(10, "series_composition", "A", 8.0),
-    8: RoleDefinition(8, "character_design", "A", 7.0),
-    14: RoleDefinition(14, "chief_animation_director", "A", 7.0),
-    87: RoleDefinition(87, "animation_producer", "A", 8.0),
-    54: RoleDefinition(54, "producer", "A", 6.0),
-    6: RoleDefinition(6, "music", "A", 5.0),
-    1: RoleDefinition(1, "original_creator", "B", 4.0),
-    7: RoleDefinition(7, "original_character_design", "B", 4.0),
-    13: RoleDefinition(13, "color_design", "B", 3.0),
-    18: RoleDefinition(18, "supervisor", "B", 4.0),
-    28: RoleDefinition(28, "editing", "B", 3.0),
-    29: RoleDefinition(29, "original_plan", "B", 4.0),
-    49: RoleDefinition(49, "co_director", "B", 5.0),
-    52: RoleDefinition(52, "executive_producer", "B", 4.0),
-    58: RoleDefinition(58, "chief_producer", "B", 4.0),
-    71: RoleDefinition(71, "art_design", "B", 3.0),
-    80: RoleDefinition(80, "supervising_producer", "B", 4.0),
-    4: RoleDefinition(4, "storyboard", "B", 4.0),
-    5: RoleDefinition(5, "episode_director", "B", 4.0),
-    3: RoleDefinition(3, "script", "B", 4.0),
-    15: RoleDefinition(15, "animation_director", "B", 3.0),
-    11: RoleDefinition(11, "art_director", "B", 3.0),
-    17: RoleDefinition(17, "photography_director", "B", 3.0),
-    44: RoleDefinition(44, "sound_director", "B", 3.0),
-    20: RoleDefinition(20, "key_animation", "C", 1.0),
-    21: RoleDefinition(21, "second_key_animation", "C", 1.0),
-    56: RoleDefinition(56, "production_assistant", "C", 1.0),
-    84: RoleDefinition(84, "setting_production", "C", 1.0),
-    9: RoleDefinition(9, "layout", "C", 1.0),
-    16: RoleDefinition(16, "mechanical_design", "C", 1.0),
-    19: RoleDefinition(19, "prop_design", "C", 1.0),
-    22: RoleDefinition(22, "animation_check", "C", 1.0),
-    25: RoleDefinition(25, "background_art", "C", 1.0),
-    26: RoleDefinition(26, "color_setting", "C", 1.0),
-    30: RoleDefinition(30, "theme_song_arrangement", "C", 1.0),
-    31: RoleDefinition(31, "theme_song_composition", "C", 1.0),
-    32: RoleDefinition(32, "theme_song_lyrics", "C", 1.0),
-    33: RoleDefinition(33, "theme_song_performance", "C", 1.0),
-    34: RoleDefinition(34, "inserted_song_performance", "C", 1.0),
-    35: RoleDefinition(35, "planning", "C", 1.0),
-    37: RoleDefinition(37, "production_manager", "C", 1.0),
-    39: RoleDefinition(39, "recording", "C", 1.0),
-    46: RoleDefinition(46, "sound_effects", "C", 1.0),
-    48: RoleDefinition(48, "adr_director", "C", 1.0),
-    51: RoleDefinition(51, "in_between_animation", "D", 0.25),
-    69: RoleDefinition(69, "cg_director", "C", 1.0),
-    70: RoleDefinition(70, "mechanical_animation_director", "C", 1.0),
-    73: RoleDefinition(73, "op_ed_storyboard", "C", 1.0),
-    82: RoleDefinition(82, "photography", "C", 1.0),
-    85: RoleDefinition(85, "music_producer", "C", 1.0),
-    86: RoleDefinition(86, "3dcg_director", "C", 1.0),
-    88: RoleDefinition(88, "special_effects_animation_director", "C", 1.0),
-    90: RoleDefinition(90, "assistant_animation_director", "C", 1.0),
-    91: RoleDefinition(91, "assistant_episode_director", "C", 1.0),
-    92: RoleDefinition(92, "main_animator", "C", 1.0),
-    106: RoleDefinition(106, "sub_character_design", "C", 1.0),
-    109: RoleDefinition(109, "layout_animation_director", "C", 1.0),
-    110: RoleDefinition(110, "assistant_chief_animation_director", "C", 1.0),
-    111: RoleDefinition(111, "prop_animation_director", "C", 1.0),
-    116: RoleDefinition(116, "music_director", "C", 1.0),
-    128: RoleDefinition(128, "op_ed_direction", "C", 1.0),
-    137: RoleDefinition(137, "action_director", "C", 1.0),
-    140: RoleDefinition(140, "character_animation_director", "C", 1.0),
-    141: RoleDefinition(141, "animation_supervisor", "C", 1.0),
-    150: RoleDefinition(150, "associate_series_composition", "C", 1.0),
-    164: RoleDefinition(164, "assistant_art_director", "C", 1.0),
-    166: RoleDefinition(166, "assistant_photography_director", "C", 1.0),
-}
-
-
-ROLE_DEFINITIONS: dict[int, RoleDefinition] = dict(EXPLICIT_ROLE_DEFINITIONS)
+ROLE_DEFINITIONS: dict[int, RoleDefinition] = {}
 
 
 def _set_role(position_id: int, normalized_role: str, role_tier: str, role_weight: float) -> None:
@@ -106,176 +32,191 @@ def _set_role(position_id: int, normalized_role: str, role_tier: str, role_weigh
     )
 
 
-# Manual Staff Galaxy review pass for anime-only staff positions.
-# Tier A: default global backbone candidates.
-_set_role(1, "original_creator", "A", 9.0)
-_set_role(2, "director", "A", 10.0)
-_set_role(6, "music", "A", 5.0)
-_set_role(7, "original_character_design", "A", 6.0)
-_set_role(8, "character_design", "A", 7.0)
-_set_role(10, "series_composition", "A", 8.0)
-_set_role(14, "chief_animation_director", "A", 7.0)
-_set_role(29, "original_plan", "A", 6.0)
-_set_role(35, "planning", "A", 6.0)
-_set_role(36, "planning_producer", "A", 6.0)
-_set_role(41, "series_production_director", "A", 8.0)
-_set_role(49, "co_director", "A", 8.0)
-_set_role(52, "executive_producer", "A", 6.0)
-_set_role(54, "producer", "A", 6.0)
-_set_role(58, "chief_producer", "A", 6.0)
-_set_role(72, "assistant_director", "A", 8.0)
-_set_role(74, "chief_director", "A", 10.0)
-_set_role(80, "supervising_producer", "A", 6.0)
-_set_role(87, "animation_producer", "A", 8.0)
-_set_role(121, "creative_producer", "A", 6.0)
-_set_role(123, "chief_production_supervisor", "A", 5.0)
+# ── Weight scale (exponential, additive scoring via SQRT(w1 * w2)) ──
+# S:  50.0  — Soul of the work / top decision-makers
+# A:  25.0  — Creative core that defines the work's identity
+# B:  12.0  — Key creative roles shaping major aspects
+# C:   6.0  — Technical leads and department heads
+# D:   3.0  — Skilled hands-on production
+# E:   1.0  — Support and assistant roles
+# F:   0.3  — Minimal or indirect involvement
 
-# Tier B: important local expansion and prominent detail roles.
-_set_role(3, "script", "B", 4.0)
-_set_role(4, "storyboard", "B", 4.0)
-_set_role(5, "episode_director", "B", 4.0)
-_set_role(11, "art_director", "B", 3.0)
-_set_role(13, "color_design", "B", 3.0)
-_set_role(15, "animation_director", "B", 3.0)
-_set_role(17, "photography_director", "B", 3.0)
-_set_role(18, "supervisor", "B", 4.0)
-_set_role(28, "editing", "B", 3.0)
-_set_role(44, "sound_director", "B", 3.0)
-_set_role(48, "adr_director", "B", 3.0)
-_set_role(53, "assistant_producer", "B", 3.0)
-_set_role(59, "co_producer", "B", 3.0)
-_set_role(69, "cg_director", "B", 3.0)
-_set_role(70, "mechanical_animation_director", "B", 3.0)
-_set_role(71, "art_design", "B", 3.0)
-_set_role(73, "op_ed_storyboard", "B", 3.0)
-_set_role(77, "action_animation_director", "B", 3.0)
-_set_role(85, "music_producer", "B", 3.0)
-_set_role(86, "3dcg_director", "B", 3.0)
-_set_role(88, "special_effects_animation_director", "B", 3.0)
-_set_role(89, "chief_episode_direction", "B", 3.0)
-_set_role(92, "main_animator", "B", 3.0)
-_set_role(101, "technical_director", "B", 3.0)
-_set_role(102, "tokusatsu_director", "B", 3.0)
-_set_role(106, "sub_character_design", "B", 3.0)
-_set_role(116, "music_director", "B", 3.0)
-_set_role(122, "associate_producer", "B", 3.0)
-_set_role(124, "line_producer", "B", 3.0)
-_set_role(128, "op_ed_direction", "B", 3.0)
-_set_role(133, "visual_director", "B", 3.0)
-_set_role(134, "creative_supervisor_director", "B", 3.0)
-_set_role(137, "action_director", "B", 3.0)
-_set_role(140, "character_animation_director", "B", 3.0)
-_set_role(141, "animation_supervisor", "B", 3.0)
-_set_role(150, "associate_series_composition", "B", 3.0)
-_set_role(158, "cg_producer", "B", 3.0)
-_set_role(159, "publicity_producer", "B", 3.0)
-_set_role(160, "art_producer", "B", 3.0)
-_set_role(161, "sound_producer", "B", 3.0)
-_set_role(164, "assistant_art_director", "B", 3.0)
-_set_role(166, "assistant_photography_director", "B", 3.0)
+# ── Tier S: 导演 / 总导演 ──
+_set_role(2, "director", "S", 50.0)
+_set_role(74, "chief_director", "S", 50.0)
 
-# Tier C: normal person detail roles, but not global backbone roles.
-_set_role(9, "layout", "C", 1.0)
-_set_role(16, "mechanical_design", "C", 1.0)
-_set_role(19, "prop_design", "C", 1.0)
-_set_role(20, "key_animation", "C", 1.0)
-_set_role(21, "second_key_animation", "C", 1.0)
-_set_role(22, "animation_check", "C", 1.0)
-_set_role(25, "background_art", "C", 1.0)
-_set_role(26, "color_setting", "C", 1.0)
-_set_role(30, "theme_song_arrangement", "C", 1.0)
-_set_role(31, "theme_song_composition", "C", 1.0)
-_set_role(32, "theme_song_lyrics", "C", 1.0)
-_set_role(33, "theme_song_performance", "C", 1.0)
-_set_role(34, "inserted_song_performance", "C", 1.0)
-_set_role(37, "production_manager", "C", 1.0)
-_set_role(39, "recording", "C", 1.0)
-_set_role(43, "setting", "C", 1.0)
-_set_role(45, "sound", "C", 1.0)
-_set_role(46, "sound_effects", "C", 1.0)
-_set_role(47, "special_effects", "C", 1.0)
-_set_role(50, "background_setting", "C", 1.0)
-_set_role(56, "production_assistant", "C", 1.0)
-_set_role(57, "casting_director", "C", 1.0)
-_set_role(65, "music_work", "C", 1.0)
-_set_role(67, "animation_work", "C", 1.0)
-_set_role(75, "3dcg", "C", 1.0)
-_set_role(82, "photography", "C", 1.0)
-_set_role(84, "setting_production", "C", 1.0)
-_set_role(90, "assistant_animation_director", "C", 1.0)
-_set_role(91, "assistant_episode_director", "C", 1.0)
-_set_role(93, "finishing", "C", 1.0)
-_set_role(94, "finishing_check", "C", 1.0)
-_set_role(95, "color_check", "C", 1.0)
-_set_role(96, "art_board", "C", 1.0)
-_set_role(97, "art", "C", 1.0)
-_set_role(98, "image_board", "C", 1.0)
-_set_role(99, "2d_works", "C", 1.0)
-_set_role(100, "3d_works", "C", 1.0)
-_set_role(103, "color_script", "C", 1.0)
-_set_role(104, "storyboard_cooperation", "C", 1.0)
-_set_role(107, "guest_character_design", "C", 1.0)
-_set_role(108, "layout_supervision", "C", 1.0)
-_set_role(109, "layout_animation_director", "C", 1.0)
-_set_role(110, "assistant_chief_animation_director", "C", 1.0)
-_set_role(111, "prop_animation_director", "C", 1.0)
-_set_role(112, "concept_design", "C", 1.0)
-_set_role(113, "costume_design", "C", 1.0)
-_set_role(114, "title_design", "C", 1.0)
-_set_role(115, "setting_cooperation", "C", 1.0)
-_set_role(117, "music_selection", "C", 1.0)
-_set_role(118, "inserted_song_lyrics", "C", 1.0)
-_set_role(119, "inserted_song_composition", "C", 1.0)
-_set_role(120, "inserted_song_arrangement", "C", 1.0)
-_set_role(125, "literary_producer", "C", 1.0)
-_set_role(129, "bank_storyboard_direction", "C", 1.0)
-_set_role(130, "live_storyboard_direction", "C", 1.0)
-_set_role(131, "meta_story_storyboard_direction", "C", 1.0)
-_set_role(132, "meta_story_character_design", "C", 1.0)
-_set_role(135, "tokusatsu_effects", "C", 1.0)
-_set_role(136, "visual_effects", "C", 1.0)
-_set_role(138, "eyecatch_art", "C", 1.0)
-_set_role(139, "illustration", "C", 1.0)
-_set_role(142, "mechanical_design_concept", "C", 1.0)
-_set_role(143, "concept_art", "C", 1.0)
-_set_role(144, "visual_concept", "C", 1.0)
-_set_role(145, "scene_design", "C", 1.0)
-_set_role(146, "monster_design", "C", 1.0)
-_set_role(147, "story_concept", "C", 1.0)
-_set_role(148, "scenario_coordinator", "C", 1.0)
-_set_role(149, "script_cooperation", "C", 1.0)
-_set_role(151, "series_composition_cooperation", "C", 1.0)
-_set_role(153, "sound_mixing", "C", 1.0)
-_set_role(154, "sound_production_coordinator", "C", 1.0)
-_set_role(155, "online_editing", "C", 1.0)
-_set_role(156, "offline_editing", "C", 1.0)
-_set_role(157, "3d_animator", "C", 1.0)
-_set_role(162, "cg_production_coordinator", "C", 1.0)
-_set_role(163, "art_production_coordinator", "C", 1.0)
-_set_role(165, "assistant_color_designer", "C", 1.0)
-_set_role(167, "assistant_production_desk", "C", 1.0)
-_set_role(168, "assistant_design_manager", "C", 1.0)
+# ── Tier A: Creative core ──
+_set_role(1, "original_creator", "A", 25.0)
+_set_role(10, "series_composition", "A", 25.0)
+_set_role(8, "character_design", "A", 25.0)
+_set_role(14, "chief_animation_director", "A", 25.0)
+_set_role(87, "animation_producer", "A", 25.0)
+_set_role(72, "assistant_director", "A", 25.0)
+_set_role(49, "co_director", "A", 25.0)
 
-# Tier D: long-tail, collaboration/noise-heavy, or load-more-only roles.
-_set_role(23, "assistant_producer_legacy", "D", 0.25)
-_set_role(24, "associate_producer_assistant", "D", 0.25)
-_set_role(27, "digital_paint", "D", 0.25)
-_set_role(38, "publicity", "D", 0.25)
-_set_role(40, "recording_assistant", "D", 0.25)
-_set_role(51, "in_between_animation", "D", 0.25)
-_set_role(55, "music_assistant", "D", 0.25)
-_set_role(60, "dialogue_editing", "D", 0.25)
-_set_role(61, "post_production_assistant", "D", 0.25)
-_set_role(62, "production_assistant_general", "D", 0.25)
-_set_role(63, "production", "D", 0.25)
-_set_role(64, "production_coordination", "D", 0.25)
-_set_role(66, "special_thanks", "D", 0.25)
-_set_role(76, "work_assistance", "D", 0.25)
-_set_role(81, "assistance", "D", 0.25)
-_set_role(83, "production_assistant_assistance", "D", 0.25)
-_set_role(105, "storyboard_clean_up", "D", 0.25)
-_set_role(127, "planning_cooperation", "D", 0.25)
-_set_role(152, "recording_studio", "D", 0.25)
+# ── Tier B: Key creative ──
+_set_role(3, "script", "B", 12.0)
+_set_role(6, "music", "B", 12.0)
+_set_role(4, "storyboard", "B", 12.0)
+_set_role(5, "episode_director", "B", 12.0)
+_set_role(7, "original_character_design", "B", 12.0)
+_set_role(54, "producer", "B", 12.0)
+_set_role(58, "chief_producer", "B", 12.0)
+_set_role(52, "executive_producer", "B", 12.0)
+_set_role(41, "series_production_director", "B", 12.0)
+_set_role(35, "planning", "B", 12.0)
+_set_role(36, "planning_producer", "B", 12.0)
+_set_role(29, "original_plan", "B", 12.0)
+_set_role(80, "supervising_producer", "B", 12.0)
+_set_role(121, "creative_producer", "B", 12.0)
+_set_role(123, "chief_production_supervisor", "B", 12.0)
+
+# ── Tier C: Technical leads / department heads ──
+_set_role(11, "art_director", "C", 6.0)
+_set_role(17, "photography_director", "C", 6.0)
+_set_role(44, "sound_director", "C", 6.0)
+_set_role(13, "color_design", "C", 6.0)
+_set_role(28, "editing", "C", 6.0)
+_set_role(86, "3dcg_director", "C", 6.0)
+_set_role(69, "cg_director", "C", 6.0)
+_set_role(15, "animation_director", "C", 6.0)
+_set_role(92, "main_animator", "C", 6.0)
+_set_role(89, "chief_episode_direction", "C", 6.0)
+_set_role(77, "action_animation_director", "C", 6.0)
+_set_role(88, "special_effects_animation_director", "C", 6.0)
+_set_role(70, "mechanical_animation_director", "C", 6.0)
+_set_role(140, "character_animation_director", "C", 6.0)
+_set_role(18, "supervisor", "C", 6.0)
+_set_role(141, "animation_supervisor", "C", 6.0)
+_set_role(116, "music_director", "C", 6.0)
+_set_role(101, "technical_director", "C", 6.0)
+_set_role(102, "tokusatsu_director", "C", 6.0)
+_set_role(133, "visual_director", "C", 6.0)
+_set_role(134, "creative_supervisor_director", "C", 6.0)
+_set_role(137, "action_director", "C", 6.0)
+_set_role(106, "sub_character_design", "C", 6.0)
+_set_role(71, "art_design", "C", 6.0)
+_set_role(48, "adr_director", "C", 6.0)
+_set_role(73, "op_ed_storyboard", "C", 6.0)
+_set_role(128, "op_ed_direction", "C", 6.0)
+_set_role(150, "associate_series_composition", "C", 6.0)
+_set_role(53, "assistant_producer", "C", 6.0)
+_set_role(59, "co_producer", "C", 6.0)
+_set_role(122, "associate_producer", "C", 6.0)
+_set_role(124, "line_producer", "C", 6.0)
+_set_role(85, "music_producer", "C", 6.0)
+_set_role(158, "cg_producer", "C", 6.0)
+_set_role(159, "publicity_producer", "C", 6.0)
+_set_role(160, "art_producer", "C", 6.0)
+_set_role(161, "sound_producer", "C", 6.0)
+_set_role(164, "assistant_art_director", "C", 6.0)
+_set_role(166, "assistant_photography_director", "C", 6.0)
+
+# ── Tier D: Skilled production ──
+_set_role(20, "key_animation", "D", 3.0)
+_set_role(16, "mechanical_design", "D", 3.0)
+_set_role(19, "prop_design", "D", 3.0)
+_set_role(9, "layout", "D", 3.0)
+_set_role(21, "second_key_animation", "D", 3.0)
+_set_role(22, "animation_check", "D", 3.0)
+_set_role(25, "background_art", "D", 3.0)
+_set_role(26, "color_setting", "D", 3.0)
+_set_role(93, "finishing", "D", 3.0)
+_set_role(94, "finishing_check", "D", 3.0)
+_set_role(95, "color_check", "D", 3.0)
+_set_role(82, "photography", "D", 3.0)
+_set_role(75, "3dcg", "D", 3.0)
+_set_role(157, "3d_animator", "D", 3.0)
+_set_role(67, "animation_work", "D", 3.0)
+_set_role(84, "setting_production", "D", 3.0)
+_set_role(37, "production_manager", "D", 3.0)
+_set_role(65, "music_work", "D", 3.0)
+_set_role(31, "theme_song_composition", "D", 3.0)
+_set_role(32, "theme_song_lyrics", "D", 3.0)
+_set_role(30, "theme_song_arrangement", "D", 3.0)
+_set_role(33, "theme_song_performance", "D", 3.0)
+_set_role(34, "inserted_song_performance", "D", 3.0)
+_set_role(118, "inserted_song_lyrics", "D", 3.0)
+_set_role(119, "inserted_song_composition", "D", 3.0)
+_set_role(120, "inserted_song_arrangement", "D", 3.0)
+_set_role(117, "music_selection", "D", 3.0)
+_set_role(39, "recording", "D", 3.0)
+_set_role(46, "sound_effects", "D", 3.0)
+_set_role(45, "sound", "D", 3.0)
+_set_role(47, "special_effects", "D", 3.0)
+_set_role(135, "tokusatsu_effects", "D", 3.0)
+_set_role(136, "visual_effects", "D", 3.0)
+_set_role(112, "concept_design", "D", 3.0)
+_set_role(113, "costume_design", "D", 3.0)
+_set_role(114, "title_design", "D", 3.0)
+_set_role(96, "art_board", "D", 3.0)
+_set_role(97, "art", "D", 3.0)
+_set_role(98, "image_board", "D", 3.0)
+_set_role(99, "2d_works", "D", 3.0)
+_set_role(100, "3d_works", "D", 3.0)
+_set_role(103, "color_script", "D", 3.0)
+_set_role(145, "scene_design", "D", 3.0)
+_set_role(146, "monster_design", "D", 3.0)
+_set_role(142, "mechanical_design_concept", "D", 3.0)
+_set_role(143, "concept_art", "D", 3.0)
+_set_role(147, "story_concept", "D", 3.0)
+_set_role(144, "visual_concept", "D", 3.0)
+_set_role(139, "illustration", "D", 3.0)
+_set_role(138, "eyecatch_art", "D", 3.0)
+_set_role(50, "background_setting", "D", 3.0)
+_set_role(43, "setting", "D", 3.0)
+_set_role(108, "layout_supervision", "D", 3.0)
+_set_role(109, "layout_animation_director", "D", 3.0)
+_set_role(111, "prop_animation_director", "D", 3.0)
+_set_role(90, "assistant_animation_director", "D", 3.0)
+_set_role(91, "assistant_episode_director", "D", 3.0)
+_set_role(110, "assistant_chief_animation_director", "D", 3.0)
+_set_role(107, "guest_character_design", "D", 3.0)
+_set_role(115, "setting_cooperation", "D", 3.0)
+_set_role(104, "storyboard_cooperation", "D", 3.0)
+_set_role(149, "script_cooperation", "D", 3.0)
+_set_role(151, "series_composition_cooperation", "D", 3.0)
+_set_role(125, "literary_producer", "D", 3.0)
+_set_role(57, "casting_director", "D", 3.0)
+_set_role(148, "scenario_coordinator", "D", 3.0)
+_set_role(167, "assistant_production_desk", "D", 3.0)
+_set_role(168, "assistant_design_manager", "D", 3.0)
+_set_role(165, "assistant_color_designer", "D", 3.0)
+_set_role(163, "art_production_coordinator", "D", 3.0)
+_set_role(162, "cg_production_coordinator", "D", 3.0)
+_set_role(154, "sound_production_coordinator", "D", 3.0)
+_set_role(156, "offline_editing", "D", 3.0)
+_set_role(155, "online_editing", "D", 3.0)
+_set_role(153, "sound_mixing", "D", 3.0)
+_set_role(129, "bank_storyboard_direction", "D", 3.0)
+_set_role(130, "live_storyboard_direction", "D", 3.0)
+_set_role(131, "meta_story_storyboard_direction", "D", 3.0)
+_set_role(132, "meta_story_character_design", "D", 3.0)
+
+# ── Tier E: Support / assistant ──
+_set_role(56, "production_assistant", "E", 1.0)
+_set_role(51, "in_between_animation", "E", 1.0)
+_set_role(27, "digital_paint", "E", 1.0)
+_set_role(83, "production_assistant_assistance", "E", 1.0)
+_set_role(62, "production_assistant_general", "E", 1.0)
+_set_role(24, "associate_producer_assistant", "E", 1.0)
+_set_role(23, "assistant_producer_legacy", "E", 1.0)
+_set_role(64, "production_coordination", "E", 1.0)
+_set_role(61, "post_production_assistant", "E", 1.0)
+_set_role(60, "dialogue_editing", "E", 1.0)
+_set_role(38, "publicity", "E", 1.0)
+_set_role(40, "recording_assistant", "E", 1.0)
+_set_role(55, "music_assistant", "E", 1.0)
+_set_role(105, "storyboard_clean_up", "E", 1.0)
+_set_role(127, "planning_cooperation", "E", 1.0)
+
+# ── Tier F: Minimal / indirect ──
+_set_role(66, "special_thanks", "F", 0.3)
+_set_role(81, "assistance", "F", 0.3)
+_set_role(42, "anime_staff_42", "F", 0.3)  # 製作
+_set_role(63, "production", "F", 0.3)
+_set_role(76, "work_assistance", "F", 0.3)
+_set_role(152, "recording_studio", "F", 0.3)
 
 
 def detect_staff_constants(raw_dir: Path, explicit_path: Path | None = None) -> Path:
@@ -319,6 +260,6 @@ def role_definition_for(position: StaffPosition) -> RoleDefinition:
     return RoleDefinition(
         position_id=position.position_id,
         normalized_role=f"anime_staff_{position.position_id}",
-        role_tier="D",
-        role_weight=0.25,
+        role_tier="E",
+        role_weight=1.0,
     )

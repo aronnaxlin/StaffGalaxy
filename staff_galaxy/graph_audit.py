@@ -9,10 +9,11 @@ import duckdb
 
 
 LAYER_TIERS: dict[str, set[str]] = {
-    "Tier A": {"A"},
-    "Tier A+B": {"A", "B"},
-    "Tier A+B+C": {"A", "B", "C"},
-    "Tier A+B+C+D": {"A", "B", "C", "D"},
+    "Tier S": {"S"},
+    "Tier S+A": {"S", "A"},
+    "Tier S+A+B": {"S", "A", "B"},
+    "Tier S+A+B+C": {"S", "A", "B", "C"},
+    "Tier S+A+B+C+D": {"S", "A", "B", "C", "D"},
 }
 
 

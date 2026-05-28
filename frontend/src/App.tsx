@@ -1,95 +1,213 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Graph from 'graphology'
-import { loadLevel, loadPersonGalaxy, loadSearchIndex, type Level } from './data/loader'
-import { buildGraph, swapGraph } from './data/graphBuilder'
-import { GalaxyView } from './components/GalaxyView'
+import { loadLevel, loadPersonGalaxy, type Level } from './data/loader'
+import { buildGraph } from './data/graphBuilder'
 import { CosmosGalaxyView } from './components/CosmosGalaxyView'
+import { ConstellationView } from './components/ConstellationView'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
-import type { SearchEntry } from './types'
+import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
+import type { PersonNameMode } from './types'
+
+type ViewMode = 'galaxy' | 'constellation'
+type ConstellationMode = 'path' | 'compare'
 
 const PANEL_NEIGHBOR_LIMIT = 120
-const DEFAULT_PERSON_ID = '94'
-type RendererMode = 'sigma' | 'cosmos'
 
-function initialRendererMode(): RendererMode {
-  return new URLSearchParams(window.location.search).get('renderer') === 'cosmos'
-    ? 'cosmos'
-    : 'sigma'
+const LEVEL_LABELS: Record<Level, string> = {
+  person: '个人星系',
+  global: '全量星系',
+  l0: '核心视图',
+  l1: '细节视图',
 }
 
-function initialGraphLevel(mode: RendererMode): Level {
-  return mode === 'cosmos' ? 'person' : 'l0'
+function PersonNameModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: PersonNameMode
+  onChange: (mode: PersonNameMode) => void
+}) {
+  return (
+    <div className="flex overflow-hidden rounded border border-slate-700/50 bg-black/30 text-[10px] backdrop-blur">
+      {(['original', 'cn'] as const).map(option => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={`px-2 py-1 transition-colors ${
+            mode === option
+              ? 'bg-cyan-900/50 text-cyan-200'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          {option === 'original' ? '原名' : '简中'}
+        </button>
+      ))}
+    </div>
+  )
 }
 
-async function loadGraphData(level: Level, personId = DEFAULT_PERSON_ID) {
-  return level === 'person' ? loadPersonGalaxy(personId) : loadLevel(level)
+interface AppRoute {
+  view: ViewMode
+  personId?: string
+  constellationMode?: ConstellationMode
+  pathFrom?: string
+  pathTo?: string
+}
+
+function readRoute(): AppRoute {
+  const url = new URL(window.location.href)
+  const personMatch = url.pathname.match(/^\/person\/([^/]+)$/)
+  if (personMatch) {
+    return { view: 'galaxy', personId: decodeURIComponent(personMatch[1]) }
+  }
+  if (url.pathname === '/path' || url.pathname === '/compare') {
+    return {
+      view: 'constellation',
+      constellationMode: url.pathname === '/compare' ? 'compare' : 'path',
+      pathFrom: url.searchParams.get('from') ?? url.searchParams.get('a') ?? undefined,
+      pathTo: url.searchParams.get('to') ?? url.searchParams.get('b') ?? undefined,
+    }
+  }
+  return { view: 'galaxy' }
+}
+
+function writeRoute(path: string, replace = false) {
+  const method = replace ? 'replaceState' : 'pushState'
+  window.history[method](null, '', path)
+}
+
+function constellationPath(mode: ConstellationMode, personAId?: string | null, personBId?: string | null) {
+  const basePath = mode === 'compare' ? '/compare' : '/path'
+  if (!personAId || !personBId) return basePath
+  return `${basePath}?from=${encodeURIComponent(personAId)}&to=${encodeURIComponent(personBId)}`
 }
 
 export default function App() {
-  const [initialMode] = useState<RendererMode>(initialRendererMode)
   const [graph, setGraph] = useState<Graph | null>(null)
-  const [level, setLevel] = useState<Level>(() => initialGraphLevel(initialMode))
-  const [rendererMode, setRendererMode] = useState<RendererMode>(initialMode)
-  const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([])
+  const [level, setLevel] = useState<Level>('global')
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const navigateToNodeRef = useRef<((nodeId: string) => void) | null>(null)
+  const [route, setRoute] = useState<AppRoute>(readRoute)
+  const [view, setView] = useState<ViewMode>(() => route.view)
+  const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
 
   useEffect(() => {
-    const firstLevel = initialGraphLevel(initialMode)
-    Promise.all([loadGraphData(firstLevel), loadSearchIndex()]).then(([data, index]) => {
-      setGraph(buildGraph(data, firstLevel))
-      setLevel(firstLevel)
-      if (firstLevel === 'person') setSelectedNode(DEFAULT_PERSON_ID)
-      setSearchEntries(index)
+    window.localStorage.setItem(PERSON_NAME_MODE_KEY, personNameMode)
+  }, [personNameMode])
+
+  useEffect(() => {
+    function handlePopState() {
+      setRoute(readRoute())
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  const loadPersonView = useCallback((personId: string, updateUrl = true) => {
+    const nextRoute = { view: 'galaxy' as const, personId }
+    setRoute(nextRoute)
+    if (updateUrl) {
+      writeRoute(`/person/${encodeURIComponent(personId)}`)
+    }
+  }, [])
+
+  const loadGlobalView = useCallback((updateUrl = true) => {
+    const nextRoute = { view: 'galaxy' as const }
+    setRoute(nextRoute)
+    if (updateUrl) {
+      writeRoute('/')
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function applyRoute() {
+      if (route.view === 'constellation') {
+        setView('constellation')
+        setLoading(false)
+        return
+      }
+
+      setView('galaxy')
+      setLoading(true)
+
+      if (route.personId) {
+        try {
+          const data = await loadPersonGalaxy(route.personId)
+          if (cancelled) return
+          setGraph(buildGraph(data, 'person'))
+          setLevel('person')
+          setSelectedNode(route.personId)
+        } catch {
+          if (cancelled) return
+          const data = await loadLevel('global')
+          if (cancelled) return
+          setGraph(buildGraph(data, 'global'))
+          setLevel('global')
+          setSelectedNode(null)
+          setRoute({ view: 'galaxy' })
+          writeRoute('/', true)
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+        return
+      }
+
+      const data = await loadLevel('global')
+      if (cancelled) return
+      setGraph(buildGraph(data, 'global'))
+      setLevel('global')
+      setSelectedNode(null)
       setLoading(false)
+    }
 
-      window.setTimeout(() => {
-        void loadLevel('l1').catch(() => undefined)
-      }, 500)
-    })
-  }, [initialMode])
-
-  const loadPersonView = useCallback(async (personId: string) => {
-    if (!graph) return
-    const data = await loadPersonGalaxy(personId)
-    swapGraph(graph, data, 'person')
-    setLevel('person')
-    setSelectedNode(personId)
-  }, [graph])
+    void applyRoute()
+    return () => { cancelled = true }
+  }, [route])
 
   const handleNodeClick = useCallback((nodeId: string) => {
-    if (rendererMode === 'cosmos') {
-      void loadPersonView(nodeId)
-      return
+    void loadPersonView(nodeId)
+  }, [loadPersonView])
+
+  const handleSearchSelect = useCallback((entry: { id: string }) => {
+    void loadPersonView(entry.id)
+  }, [loadPersonView])
+
+  const handleConstellationNodeClick = useCallback((nodeId: string) => {
+    setView('galaxy')
+    void loadPersonView(nodeId)
+  }, [loadPersonView])
+
+  const openConstellation = useCallback(() => {
+    setView('constellation')
+    setRoute({ view: 'constellation', constellationMode: 'path' })
+    writeRoute('/path')
+  }, [])
+
+  const handleConstellationRouteChange = useCallback((personAId: string | null, personBId: string | null) => {
+    if (personAId && personBId) {
+      const mode = route.constellationMode ?? 'path'
+      const nextPath = constellationPath(mode, personAId, personBId)
+      const currentPath = `${window.location.pathname}${window.location.search}`
+      setRoute({ view: 'constellation', constellationMode: mode, pathFrom: personAId, pathTo: personBId })
+      writeRoute(nextPath, currentPath === nextPath)
     }
-    setSelectedNode(prev => (prev === nodeId ? null : nodeId))
-  }, [loadPersonView, rendererMode])
+  }, [route.constellationMode])
 
-  const handleSearchSelect = useCallback((id: string) => {
-    if (rendererMode === 'cosmos') {
-      void loadPersonView(id)
-      return
-    }
-    setSelectedNode(id)
-    navigateToNodeRef.current?.(id)
-  }, [loadPersonView, rendererMode])
-
-  const handleRendererModeChange = useCallback(async (mode: RendererMode) => {
-    setRendererMode(mode)
-    const url = new URL(window.location.href)
-    if (mode === 'cosmos') url.searchParams.set('renderer', 'cosmos')
-    else url.searchParams.delete('renderer')
-    window.history.replaceState(null, '', url)
-
-    if (!graph) return
-    const nextLevel = initialGraphLevel(mode)
-    const data = await loadGraphData(nextLevel)
-    swapGraph(graph, data, nextLevel)
-    setLevel(nextLevel)
-    setSelectedNode(nextLevel === 'person' ? DEFAULT_PERSON_ID : null)
-  }, [graph])
+  const handleCompareCollaborator = useCallback((personAId: string, personBId: string) => {
+    setView('constellation')
+    setRoute({
+      view: 'constellation',
+      constellationMode: 'compare',
+      pathFrom: personAId,
+      pathTo: personBId,
+    })
+    writeRoute(constellationPath('compare', personAId, personBId))
+  }, [])
 
   const selectedNodeAttrs = selectedNode && graph?.hasNode(selectedNode)
     ? graph.getNodeAttributes(selectedNode)
@@ -98,11 +216,15 @@ export default function App() {
   const selectedNodeNeighbors = selectedNode && graph?.hasNode(selectedNode)
     ? graph.neighbors(selectedNode)
       .map(id => {
-        const edge = graph.edge(selectedNode, id)
+        const edgeKey = graph.edge(selectedNode, id)
+        const edgeAttrs = edgeKey ? graph.getEdgeAttributes(edgeKey) : {}
         return {
           id,
           attrs: graph.getNodeAttributes(id),
-          sharedWorksCount: edge ? Number(graph.getEdgeAttribute(edge, 'sharedWorksCount') ?? 0) : 0,
+          sharedWorksCount: Number(edgeAttrs.sharedWorksCount ?? 0),
+          collaborationScore: Number(edgeAttrs.collaborationScore ?? 0),
+          firstYear: (edgeAttrs.firstYear as number) ?? undefined,
+          lastYear: (edgeAttrs.lastYear as number) ?? undefined,
         }
       })
       .sort((a, b) => b.sharedWorksCount - a.sharedWorksCount)
@@ -112,6 +234,31 @@ export default function App() {
   const selectedNodeNeighborTotal = selectedNode && graph?.hasNode(selectedNode)
     ? graph.neighbors(selectedNode).length
     : 0
+
+  if (view === 'constellation') {
+    return (
+      <ConstellationView
+        key={`${route.constellationMode ?? 'path'}|${route.pathFrom ?? ''}|${route.pathTo ?? ''}`}
+        mode={route.constellationMode ?? 'path'}
+        initialPersonAId={route.pathFrom}
+        initialPersonBId={route.pathTo}
+        onNodeClick={handleConstellationNodeClick}
+        onRouteChange={handleConstellationRouteChange}
+        personNameMode={personNameMode}
+        onPersonNameModeChange={setPersonNameMode}
+        onBack={() => {
+          setView('galaxy')
+          if (selectedNode) {
+            setRoute({ view: 'galaxy', personId: selectedNode })
+            writeRoute(`/person/${encodeURIComponent(selectedNode)}`)
+          } else {
+            setRoute({ view: 'galaxy' })
+            writeRoute('/')
+          }
+        }}
+      />
+    )
+  }
 
   if (loading) {
     return (
@@ -124,27 +271,14 @@ export default function App() {
   return (
     <div className="relative w-full h-full">
       {graph && (
-        rendererMode === 'cosmos'
-          ? (
-            <CosmosGalaxyView
-              graph={graph}
-              onNodeClick={handleNodeClick}
-              navigateToNodeRef={navigateToNodeRef}
-              level={level}
-              onLevelChange={setLevel}
-              selectedNode={selectedNode}
-            />
-          )
-          : (
-            <GalaxyView
-              graph={graph}
-              onNodeClick={handleNodeClick}
-              navigateToNodeRef={navigateToNodeRef}
-              level={level}
-              onLevelChange={setLevel}
-              selectedNode={selectedNode}
-            />
-          )
+        <CosmosGalaxyView
+          graph={graph}
+          onNodeClick={handleNodeClick}
+          level={level}
+          selectedNode={selectedNode}
+          personNameMode={personNameMode}
+          onBackToGlobal={loadGlobalView}
+        />
       )}
 
       <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
@@ -152,26 +286,22 @@ export default function App() {
           Staff Galaxy
         </div>
         <div className="pointer-events-auto">
-          <SearchBar entries={searchEntries} onSelect={handleSearchSelect} />
+          <SearchBar onSelect={handleSearchSelect} personNameMode={personNameMode} />
         </div>
-        <div className="pointer-events-auto flex items-center rounded border border-slate-700/70 bg-black/35 p-1 text-xs text-slate-400 backdrop-blur">
+        <div className="pointer-events-auto">
           <button
             type="button"
-            onClick={() => handleRendererModeChange('sigma')}
-            className={`px-2 py-1 ${rendererMode === 'sigma' ? 'bg-slate-700 text-slate-100' : 'hover:text-slate-200'}`}
+            onClick={openConstellation}
+            className="text-xs px-2 py-1 rounded border border-slate-700/50 bg-black/30 text-slate-400 hover:text-cyan-300 hover:border-cyan-600/40 transition-colors"
           >
-            Sigma
-          </button>
-          <button
-            type="button"
-            onClick={() => handleRendererModeChange('cosmos')}
-            className={`px-2 py-1 ${rendererMode === 'cosmos' ? 'bg-cyan-800/80 text-cyan-100' : 'hover:text-slate-200'}`}
-          >
-            Cosmos
+            关系星图
           </button>
         </div>
-        <div className="text-xs text-slate-600 tracking-wider ml-auto">
-          {level === 'person' ? '个人星系' : level === 'global' ? '全量星系' : level === 'l0' ? '核心视图' : '细节视图'}
+        <div className="text-xs text-slate-500 tracking-wider ml-auto px-2 py-0.5 rounded border border-slate-700/50 bg-black/30 backdrop-blur">
+          {LEVEL_LABELS[level]}
+        </div>
+        <div className="pointer-events-auto">
+          <PersonNameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
         </div>
       </div>
 
@@ -181,8 +311,11 @@ export default function App() {
           nodeAttrs={selectedNodeAttrs}
           neighbors={selectedNodeNeighbors}
           neighborTotal={selectedNodeNeighborTotal}
+          personNameMode={personNameMode}
+          onPersonNameModeChange={setPersonNameMode}
           onClose={() => setSelectedNode(null)}
           onNodeClick={handleNodeClick}
+          onCompare={handleCompareCollaborator}
         />
       )}
     </div>

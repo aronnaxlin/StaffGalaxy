@@ -4,13 +4,14 @@ import argparse
 from pathlib import Path
 
 from .archive import detect_archive_zip
-from .database import connect_database, create_indexes, create_supporting_views
+from .database import connect_database, create_indexes, create_supporting_views, record_data_snapshot
 from .graph_nodes import build_graph_nodes
 from .graph_audit import audit_graph_layers
 from .ingest import ingest_archive
 from .report import write_audit_report
+from .search_index import build_person_search_terms
 from .roles import detect_staff_constants, load_anime_staff_positions
-from .visible_edges import build_visible_person_edges
+from .visible_edges import build_person_collaboration_edges, build_visible_person_edges
 
 
 def main() -> int:
@@ -36,24 +37,44 @@ def main() -> int:
     try:
         ingest_stats = ingest_archive(conn, archive, positions, args.extract_dir)
         print("Ingest complete.", flush=True)
-        edge_stats = build_visible_person_edges(conn, role_tier="A", top_k=10)
-        node_stats = build_graph_nodes(conn, role_tier="A")
+        collaboration_stats = build_person_collaboration_edges(conn)
+        edge_stats = build_visible_person_edges(conn, min_role_weight=12.0, top_k=10)
+        node_stats = build_graph_nodes(conn, min_role_weight=12.0)
+        search_stats = build_person_search_terms(conn)
         create_supporting_views(conn)
         create_indexes(conn)
+        metadata = archive.latest_metadata or {}
+        created_at = metadata.get("created_at")
+        source_url = metadata.get("browser_download_url")
+        record_data_snapshot(
+            conn,
+            archive_name=archive.zip_path.name,
+            archive_created_at=created_at if isinstance(created_at, str) else "",
+            archive_size_bytes=archive.zip_path.stat().st_size,
+            source_url=source_url if isinstance(source_url, str) else "",
+        )
         print(
-            f"Visible edges built: {edge_stats.edge_count:,} edges across "
-            f"{edge_stats.node_count:,} people.",
+            f"Complete staff collaboration edges built: {collaboration_stats.edge_count:,} edges "
+            f"across {collaboration_stats.node_count:,} people.",
             flush=True,
         )
         print(
-            f"Graph nodes built: {node_stats.node_count:,} Tier A people "
+            f"Visible edges built: {edge_stats.edge_count:,} edges across "
+            f"{edge_stats.node_count:,} people (weight >= 12).",
+            flush=True,
+        )
+        print(
+            f"Graph nodes built: {node_stats.node_count:,} people "
             f"({node_stats.nodes_with_visible_edges:,} with visible edges).",
+            flush=True,
+        )
+        print(
+            f"Search index built: {search_stats.term_count:,} terms across "
+            f"{search_stats.person_count:,} people.",
             flush=True,
         )
         layer_audits = audit_graph_layers(conn, args.pair_materialize_limit)
         print("Graph audit complete.", flush=True)
-        metadata = archive.latest_metadata or {}
-        created_at = metadata.get("created_at")
         write_audit_report(
             path=args.report,
             conn=conn,

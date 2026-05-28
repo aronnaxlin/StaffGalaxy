@@ -1,203 +1,62 @@
 # Implementation Roadmap
 
-## Phase 0: Product And Data Direction
+## Completed
 
-Current phase.
+### Phase 1: Data Pipeline ✓
+- Bangumi Archive detection and DuckDB import.
+- 163 position definitions with normalized roles, tiers, and weights.
+- Graph edge and node materialization.
+- Data audit with tier comparison reports.
 
-Goals:
+### Phase 2: Backend API ✓
+- FastAPI server with live DuckDB queries.
+- Graph endpoints: nodes and edges for global/l0/l1 levels.
+- Person galaxy endpoint with data-driven layout.
+- Unified search with CJK variant mapping.
+- Collaboration detail with per-person roles per shared work.
+- BFS shortest path finding with multi-parent tracking.
 
-- Define product semantics.
-- Lock MVP boundaries.
-- Document data model.
-- Document audit requirements.
-- Prevent premature frontend implementation.
+### Phase 3: Frontend Core ✓
+- React + Cosmos.gl WebGL galaxy renderer.
+- Zoom-dependent edge LOD.
+- Person-centered galaxy view with back-to-global navigation.
+- Person detail sidebar with expandable collaboration cards.
+- Unified search bar with locked-pill mode.
+- Obsidian Graph View visual style.
 
-Outputs:
+### Phase 4: Path Visualization ✓
+- ConstellationView — separate page for two-person path finding.
+- SVG-based depth-layered node layout with colored Bezier curves.
+- All shortest paths displayed with edge labels.
 
-- `docs/staff-galaxy/product-definition.md`
-- `docs/staff-galaxy/data-model-and-architecture.md`
-- `docs/staff-galaxy/data-audit-spec.md`
-- `docs/staff-galaxy/implementation-roadmap.md`
-- `docs/staff-galaxy/mvp-acceptance.md`
+### Phase 5: Scoring Refinement ✓
+- Six-tier exponential weight system (S/A/B/C/D/E/F).
+- Collaboration score = `SUM(SQRT(w1 × w2))`.
+- Graph backbone expanded to S+A+B (weight ≥ 12).
 
-## Phase 1: Data Scale Audit
+## Pending
 
-Goal:
+### Layout Improvement
+- Replace `deterministic_spiral_v1` with offline ForceAtlas2 or Leiden/ForceAtlas2.
+- Community detection for color assignment.
+- Stable coordinates that preserve clusters.
 
-确定 Bangumi Archive STAFF 数据投影成人物合作图后的真实规模。
+### Voice Cast Integration
+- CAST tier currently exists in DB but not rendered in the graph.
+- Decide whether voice actors appear as separate layer or are interleaved with staff.
 
-Build:
+### Performance & Scale
+- Bundle splitting: lazy-load Cosmos.gl.
+- Server-side pagination for large neighbor lists.
+- Time-range filtering on graph edges.
 
-- Local archive detection.
-- DuckDB import.
-- Role normalization.
-- Candidate graph audit.
-- Pruning strategy report.
+### Deployment
+- Production build configuration.
+- Static asset serving strategy.
+- Database update workflow for new archive snapshots.
 
-Do not build:
-
-- Frontend.
-- Recommendations.
-- Real-time graph layout.
-
-Primary output:
-
-```text
-reports/data-audit.md
-```
-
-Decision after this phase:
-
-- Default visible role layer: Tier A or Tier A + B.
-- Backbone edge strategy.
-- Top-K neighbor value.
-- Whether initial graph can load all visible nodes and edges at once.
-
-## Phase 2: Mock Graph View
-
-Goal:
-
-Build the interaction model before connecting real data.
-
-Stack:
-
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- Sigma.js
-- Graphology
-
-Use mock JSON under:
-
-```text
-public/data/mock/
-```
-
-Required interactions:
-
-- Render full-screen galaxy.
-- Hover node to show name and neighbors.
-- Click person to open detail panel.
-- Search one person.
-- Compare two people.
-- Click edge to show evidence.
-- Filter by minimum score and shared works.
-- Toggle selected person's neighborhood.
-
-Important:
-
-Mock data must match future production schemas. This prevents throwaway UI code.
-
-## Phase 3: Real Visible Graph Export
-
-Goal:
-
-Generate production JSON files from DuckDB using thresholds selected after Phase 1.
-
-Outputs:
-
-```text
-public/data/
-├── manifest.json
-├── galaxy/nodes.json
-├── galaxy/edges-backbone.json
-├── galaxy/communities.json
-├── persons/person-[id].json
-└── search/persons-index.json
-```
-
-Build:
-
-- Visible edge computation.
-- Node visible degree.
-- Node size calculation.
-- Community detection.
-- Stable offline x/y layout.
-- Person detail export.
-- Search index export.
-
-Do not:
-
-- Export pair files for every person pair.
-- Put anime works into the default graph as nodes.
-- Make layout random between builds unless source data changes.
-
-## Phase 4: Real Data Frontend Integration
-
-Goal:
-
-Replace mock data with exported static files.
-
-Required behavior:
-
-- Load `manifest.json` on startup.
-- Load galaxy nodes and backbone edges.
-- Show snapshot date and data source note.
-- Search from `search/persons-index.json`.
-- Lazy-load `persons/person-[id].json`.
-- Compare two people by intersecting credits.
-- Render hidden evidence-only relation as temporary dashed edge.
-
-Side panel must show:
-
-- Person name.
-- Major roles.
-- Visible collaborators.
-- Representative works.
-- Shared works for comparison.
-- Each person's role in each shared work.
-- First and latest collaboration year where available.
-
-## Phase 5: Large Graph Performance And Layered Loading
-
-Goal:
-
-Preserve the feeling of entering a total galaxy without loading all evidence at startup.
-
-Implement:
-
-- Lightweight initial node loading.
-- Backbone edge loading for global zoom.
-- Community-level edge loading when zoomed or selected.
-- Sparse global labels.
-- Neighborhood expansion on selection.
-- Performance instrumentation.
-
-Instrumentation:
-
-- Initial JSON transfer size.
-- Parsing time.
-- Graph render time.
-- Visible node count.
-- Visible edge count.
-
-## Milestone Decisions
-
-After Phase 1:
-
-- Choose role layer.
-- Choose top-K.
-- Choose minimum score.
-- Decide whether community files are needed immediately.
-
-After Phase 2:
-
-- Confirm graph interaction language.
-- Confirm detail panel information hierarchy.
-- Confirm search and compare flow.
-
-After Phase 3:
-
-- Confirm data size is feasible for static hosting.
-- Confirm generated graph is visually readable.
-- Confirm evidence lookup works without pair files.
-
-After Phase 4:
-
-- MVP is functionally usable.
-
-After Phase 5:
-
-- MVP is ready for larger public data snapshots.
-
+### Polish
+- Mobile/responsive layout.
+- Keyboard shortcuts for common actions.
+- URL state for shareable views (selected person, constellation pair).
+- Loading states and error boundaries.

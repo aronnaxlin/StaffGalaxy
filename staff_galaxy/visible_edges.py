@@ -6,6 +6,14 @@ import duckdb
 
 
 @dataclass(frozen=True)
+class CollaborationEdgeStats:
+    edge_count: int
+    node_count: int
+    shared_work_pairs: int
+    role_layer: str
+
+
+@dataclass(frozen=True)
 class VisibleEdgeStats:
     edge_count: int
     node_count: int
@@ -14,10 +22,86 @@ class VisibleEdgeStats:
     role_layer: str
 
 
+def build_person_collaboration_edges(conn: duckdb.DuckDBPyConnection) -> CollaborationEdgeStats:
+    """Materialize the complete staff collaboration graph from all anime credits."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS person_collaboration_edges (
+          source_person_id INTEGER,
+          target_person_id INTEGER,
+          shared_works_count INTEGER,
+          collaboration_score DOUBLE,
+          first_year INTEGER,
+          last_year INTEGER,
+          role_layer TEXT
+        )
+        """
+    )
+    conn.execute("DELETE FROM person_collaboration_edges")
+    conn.execute("DROP TABLE IF EXISTS full_collaboration_subject_people")
+    conn.execute("DROP TABLE IF EXISTS full_collaboration_candidate_edges")
+
+    conn.execute(
+        """
+        CREATE TEMP TABLE full_collaboration_subject_people AS
+        SELECT
+          subject_id,
+          person_id,
+          MAX(role_weight) AS role_weight
+        FROM credits
+        GROUP BY subject_id, person_id
+        """
+    )
+
+    role_layer = "all_staff"
+    conn.execute(
+        """
+        INSERT INTO person_collaboration_edges
+        SELECT
+          a.person_id AS source_person_id,
+          b.person_id AS target_person_id,
+          COUNT(*)::INTEGER AS shared_works_count,
+          SUM(SQRT(a.role_weight * b.role_weight))::DOUBLE AS collaboration_score,
+          MIN(s.year)::INTEGER AS first_year,
+          MAX(s.year)::INTEGER AS last_year,
+          ? AS role_layer
+        FROM full_collaboration_subject_people a
+        JOIN full_collaboration_subject_people b
+          ON a.subject_id = b.subject_id
+         AND a.person_id < b.person_id
+        JOIN subjects s ON s.id = a.subject_id
+        GROUP BY a.person_id, b.person_id
+        """,
+        [role_layer],
+    )
+
+    edge_count = conn.execute("SELECT COUNT(*) FROM person_collaboration_edges").fetchone()[0]
+    node_count = conn.execute(
+        """
+        SELECT COUNT(DISTINCT person_id)
+        FROM (
+          SELECT source_person_id AS person_id FROM person_collaboration_edges
+          UNION ALL
+          SELECT target_person_id AS person_id FROM person_collaboration_edges
+        )
+        """
+    ).fetchone()[0]
+    shared_work_pairs = conn.execute(
+        "SELECT SUM(shared_works_count)::BIGINT FROM person_collaboration_edges"
+    ).fetchone()[0]
+
+    return CollaborationEdgeStats(
+        edge_count=int(edge_count),
+        node_count=int(node_count),
+        shared_work_pairs=int(shared_work_pairs or 0),
+        role_layer=role_layer,
+    )
+
+
 def build_visible_person_edges(
     conn: duckdb.DuckDBPyConnection,
     *,
-    role_tier: str = "A",
+    min_role_weight: float = 12.0,
     top_k: int = 10,
 ) -> VisibleEdgeStats:
     conn.execute("DELETE FROM visible_person_edges")
@@ -33,10 +117,10 @@ def build_visible_person_edges(
           person_id,
           MAX(role_weight) AS role_weight
         FROM credits
-        WHERE role_tier = ?
+        WHERE role_weight >= ?
         GROUP BY subject_id, person_id
         """,
-        [role_tier],
+        [min_role_weight],
     )
 
     conn.execute(
@@ -89,6 +173,7 @@ def build_visible_person_edges(
         """
     )
 
+    role_layer = f"Weight >={min_role_weight}"
     conn.execute(
         """
         INSERT INTO visible_person_edges
@@ -114,9 +199,8 @@ def build_visible_person_edges(
          AND r.target_person_id = e.target_person_id
         WHERE e.shared_works_count >= 2 OR r.top_neighbor_rank <= ?
         """,
-        [f"Tier {role_tier}", top_k, top_k],
+        [role_layer, top_k, top_k],
     )
-
     edge_count = conn.execute("SELECT COUNT(*) FROM visible_person_edges").fetchone()[0]
     node_count = conn.execute(
         """
@@ -136,6 +220,5 @@ def build_visible_person_edges(
         node_count=int(node_count),
         shared_works_ge_2_edges=int(shared_works_ge_2_edges),
         top_k=top_k,
-        role_layer=f"Tier {role_tier}",
+        role_layer=role_layer,
     )
-

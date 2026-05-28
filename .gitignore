@@ -9,3 +9,27 @@ __pycache__/
 .venv/
 *.egg-info/
 .codex/
+
+# Frontend dependencies and build output.
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+frontend/dist-ssr/
+
+# Logs, caches, and local captures.
+logs/
+*.log
+*.tmp
+.cache/
+.pytest_cache/
+.ruff_cache/
+screenshots/
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Local secrets/config.
+.env
+.env.*
+!.env.example

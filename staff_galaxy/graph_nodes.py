@@ -18,7 +18,7 @@ class GraphNodeStats:
 def build_graph_nodes(
     conn: duckdb.DuckDBPyConnection,
     *,
-    role_tier: str = "A",
+    min_role_weight: float = 12.0,
 ) -> GraphNodeStats:
     layout_method = "deterministic_spiral_v1"
     conn.execute("DELETE FROM graph_nodes")
@@ -30,7 +30,7 @@ def build_graph_nodes(
         WITH tier_people AS (
           SELECT DISTINCT person_id
           FROM credits
-          WHERE role_tier = ?
+          WHERE role_weight >= ?
         ),
         edge_degrees AS (
           SELECT
@@ -53,9 +53,10 @@ def build_graph_nodes(
         FROM tier_people tp
         LEFT JOIN edge_degrees ed ON ed.person_id = tp.person_id
         """,
-        [role_tier],
+        [min_role_weight],
     )
 
+    role_layer = f"Weight >={min_role_weight}"
     conn.execute(
         """
         INSERT INTO graph_nodes
@@ -92,7 +93,7 @@ def build_graph_nodes(
           ? AS layout_method
         FROM positioned
         """,
-        [f"Tier {role_tier}", layout_method],
+        [role_layer, layout_method],
     )
 
     row = conn.execute(
@@ -110,6 +111,6 @@ def build_graph_nodes(
         nodes_with_visible_edges=int(row[1]),
         max_visible_degree=int(row[2] or 0),
         max_node_size=float(row[3] or 0.0),
-        role_layer=f"Tier {role_tier}",
+        role_layer=role_layer,
         layout_method=layout_method,
     )

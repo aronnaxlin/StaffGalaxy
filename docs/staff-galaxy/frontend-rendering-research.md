@@ -1,96 +1,95 @@
-# Staff Galaxy Frontend Rendering Research
+# Staff Galaxy Frontend Rendering
 
 ## Current Decision
 
-Use a renderer-adapter architecture instead of betting the whole product on one graph library.
+**Cosmos.gl is the sole renderer.** Sigma.js was evaluated and removed.
 
 ```text
-DuckDB API
-  -> graph protocol / Graphology model
-  -> renderer adapters
-      -> Sigma.js for labels, selection, local exploration
-      -> cosmos.gl for GPU-heavy global galaxy experiments
-      -> optional 3D renderer later, not default
+DuckDB → FastAPI → React + Cosmos.gl
 ```
 
-## Candidate Matrix
+Dual-renderer architecture was tried and abandoned. Cosmos.gl handles all graph rendering: global view, personal galaxy, and zoom/pan interaction.
 
-| Renderer | Best Use | Strengths | Risks |
-| --- | --- | --- | --- |
-| Sigma.js + Graphology | Default product interaction and local exploration | Mature React path, labels, reducers, selection, search state, good graph model | Large dense global views still require aggressive LOD |
-| cosmos.gl / `@cosmos.gl/graph` | Global "total galaxy" GPU canvas | WebGL point/link arrays, fast pan/zoom, useful for thousands of sparse person nodes | No built-in label layer, needs adapter work for coordinates, focus state, hit labels, evidence UI |
-| 3d-force-graph / Three.js | Optional 3D lab mode | Depth, visual drama, intuitive orbit for demos | Occlusion hurts reading names and comparing evidence; should not be the default Staff Galaxy workflow |
-| Custom Canvas/WebGL | Only if library candidates fail | Full control over LOD and labels | More engineering cost before product semantics stabilize |
+## Why Cosmos.gl Only
 
-References checked:
+- WebGL GPU rendering handles 21K+ nodes with smooth pan/zoom.
+- Zoom-dependent edge LOD keeps the view readable at all scales.
+- No label layer needed on the WebGL canvas — hover labels use DOM overlay.
+- Removing Sigma.js simplified the bundle (~725 KB → ~636 KB) and eliminated adapter complexity.
 
-- [cosmosgl/graph](https://github.com/cosmosgl/graph): GPU/WebGL graph renderer, MIT.
-- [Sigma.js](https://github.com/jacomyal/sigma.js): WebGL graph renderer, MIT.
-- [Graphology](https://github.com/graphology/graphology): graph data model and algorithms, MIT.
-- [3d-force-graph](https://github.com/vasturiano/3d-force-graph): ThreeJS 3D force graph, MIT.
+## Renderer Configuration
 
-## Browser Findings
-
-I wired a Cosmos POC behind `?renderer=cosmos` and the top-bar renderer toggle.
-
-Observed:
-
-- The Cosmos canvas renders the same DB-backed data through the existing API.
-- The current global API layer returns `16,800` Tier A person nodes and `1,968` strong collaboration edges with `sharedWorksCount >= 12`.
-- Cosmos uses zoom-dependent edge LOD:
-  - far view: `sharedWorksCount >= 40`;
-  - mid view: `sharedWorksCount >= 24`;
-  - near view: `sharedWorksCount >= 12`.
-- The default Cosmos entry can focus a known person, currently Bangumi person `94` 庵野秀明, so the app does not need to start by forcing a full graph overview.
-- Cosmos needs a coordinate adapter. The current DB `deterministic_spiral_v1` coordinates are not in Cosmos' expected space; mapping them into an `8192` canvas centered around `4096,4096` fixes the blank canvas.
-- Zoom/pan feels smoother than the current Sigma global view.
-- Labels are the main missing piece. Cosmos is promising as a global starfield renderer, but Staff Galaxy still needs a separate label/selection/evidence layer.
-- The production build now warns that the main JS chunk is about `725 kB`. If we keep both renderers, Cosmos should be lazy-loaded.
-- The biggest visual blocker is not the renderer anymore; it is the placeholder layout. `deterministic_spiral_v1` produces a regular point field, not a semantic galaxy. The next backend/data task should compute an offline graph layout and store stable coordinates in DuckDB.
-
-## 3D Position
-
-3D is worth researching as a separate mode, not as the default.
-
-Use it for:
-
-- "explore depth" demo mode.
-- Dense community overviews.
-- Visual storytelling.
-
-Avoid it for default work:
-
-- person name reading;
-- two-person comparison;
-- evidence inspection;
-- stable shareable screenshots.
-
-The better near-term plan is a high-quality 2D global galaxy plus local expansion, then a 3D experiment after the data API and local evidence panel are solid.
-
-## Recommended Next Architecture
-
-```text
-frontend/src/graph/
-  protocol/
-    graph-level.ts
-    graph-node.ts
-    graph-edge.ts
-  adapters/
-    sigma-adapter.tsx
-    cosmos-adapter.tsx
-  controls/
-    search-controller.ts
-    selection-controller.ts
-    level-controller.ts
-  layout/
-    normalize-cosmos-coordinates.ts
-    offline-layout-contract.ts
+```typescript
+const COSMOS_CONFIG = {
+  backgroundColor: '#0a0a0f',
+  enableSimulation: false,
+  spaceSize: 8192,
+  fitViewPadding: 0.18,
+  pointSizeScale: 0.85,
+  pointGreyoutOpacity: 0.03,
+  pointOpacity: 0.92,
+  scalePointsOnZoom: true,
+  scaleLinksOnZoom: false,
+  pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+  renderHoveredPointRing: true,
+  hoveredPointRingColor: '#f8fafc',
+  focusedPointRingColor: '#fef08a',
+  linkVisibilityDistanceRange: [35, 180],
+}
 ```
 
-Immediate next steps:
+## Edge Level-of-Detail
 
-1. Lazy-load Cosmos so Sigma remains the small default bundle.
-2. Move the coordinate normalization into a named adapter helper.
-3. Export or compute better offline layout coordinates from the backend. The current spiral placeholder is okay for plumbing, not for final reading.
-4. Keep Sigma as the local/detail renderer while Cosmos is evaluated for global L0/L1.
-5. Add a label overlay strategy for Cosmos: selected node, hovered node, and top-N high-degree names only.
+Zoom-dependent shared-works thresholds filter visible edges:
+
+| Level | Zoom > 0.9 | Zoom > 0.65 | Default |
+|---|---|---|---|
+| global | 40 | 24 | 12 |
+| l0/l1 | 24 | 16 | 12 |
+| person | 1 | 1 | 1 |
+
+Edges are rebuilt on zoom end via `applyEdgeDensity()`.
+
+## Hover Performance
+
+Hover labels bypass React state entirely:
+
+- Label DOM element updated via `textContent` + `classList` directly.
+- No React re-render on mouseover/mouseout.
+- Node ID → label lookup uses a pre-built `Map<string, string>` in the payload (O(1)).
+- Cosmos config is a module-level constant, not recreated per render.
+
+## Coordinate System
+
+DB coordinates (`deterministic_spiral_v1`, range ~0–1000) are mapped to Cosmos space:
+
+```typescript
+const COSMOS_SPACE_SIZE = 8192
+const COSMOS_LAYOUT_SIZE = 4300
+
+// Normalize DB coords into Cosmos [0, 8192] centered at [4096, 4096]
+position = SPACE_SIZE / 2 + ((dbCoord - center) / span) * LAYOUT_SIZE
+```
+
+## Visual Style
+
+Obsidian Graph View aesthetic:
+- White/gray dots with subtle warmth for high-degree nodes.
+- Tier A (now S/A) nodes get a slight blue tint.
+- Edge colors: warm slate-blue → cyan highlights for strong connections, strength-driven opacity and width.
+- Node size: `2.0 + MIN(10.0, LN(1 + weightedDegree) × 1.8)`, log-scaled.
+- Center nodes (person view) get larger size (10px).
+
+## Bundle Size
+
+- Main JS chunk: ~636 KB (Cosmos.gl + React + Graphology)
+- CSS: ~26 KB (Tailwind)
+- Vite's chunk size warning is pre-existing and acceptable for this application.
+
+## What Was Removed
+
+- `@react-sigma/core`, `sigma` — Sigma.js renderer
+- `graphology-communities-louvain` — not needed without Sigma
+- `graphology-layout-forceatlas2` — offline layout preferred
+- `graphology-shortest-path` — path finding done server-side via BFS
+- `GalaxyView.tsx`, `GraphEvents.tsx` — Sigma-specific components

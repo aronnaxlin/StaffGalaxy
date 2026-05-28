@@ -85,6 +85,7 @@ def ingest_archive(
           id::INTEGER AS id,
           COALESCE(name, '') AS name,
           type::INTEGER AS type,
+          COALESCE(infobox, '') AS infobox,
           COALESCE(CAST(career AS VARCHAR), '') AS career_json,
           COALESCE(summary, '') AS summary
         FROM read_json(
@@ -94,6 +95,7 @@ def ingest_archive(
             id: 'INTEGER',
             name: 'VARCHAR',
             type: 'INTEGER',
+            infobox: 'VARCHAR',
             career: 'JSON',
             summary: 'VARCHAR'
           }}
@@ -150,6 +152,7 @@ def ingest_archive(
           sp.subject_id,
           sp.person_id,
           sp.position_id,
+          COALESCE(pos.cn, '') AS raw_position,
           COALESCE(pos.cn, '') AS position_cn,
           COALESCE(pos.en, '') AS position_en,
           COALESCE(pos.jp, '') AS position_jp,

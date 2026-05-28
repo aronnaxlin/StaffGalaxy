@@ -2,23 +2,17 @@
 
 ## Architecture Summary
 
-Staff Galaxy 使用两层数据模型：
-
-| Layer | Content | Purpose |
-| --- | --- | --- |
-| 完整证据层 | 人物、作品、职位原始 STAFF 记录 | 精确查询两个人共同作品 |
-| 默认星图层 | 筛选和稀疏化后的人物合作边 | 初始全局 Graph View |
-
-MVP 应先用静态文件驱动前端，避免过早引入服务端复杂度。
+Staff Galaxy uses a live API architecture, not static JSON export:
 
 ```text
 Bangumi Archive files
-→ local audit and import pipeline
-→ DuckDB fact database
-→ visible graph export pipeline
-→ static JSON files
-→ React + Sigma.js graph explorer
+  → Python ingest pipeline
+  → DuckDB database
+  → FastAPI backend (staff_galaxy/api.py)
+  → React + Cosmos.gl frontend
 ```
+
+The frontend queries the API directly. There is no intermediate static file export layer.
 
 ## Raw Fact Model
 
@@ -31,27 +25,29 @@ CREATE TABLE subjects (
   name TEXT,
   name_cn TEXT,
   date TEXT,
-  platform TEXT,
+  year INTEGER,
+  platform INTEGER,
   score DOUBLE,
   rank INTEGER
 );
 ```
 
-MVP 只保留 `type = 2` 的动画条目进入 STAFF 关系分析。
+Only `type = 2` (anime) is used for STAFF graph analysis.
 
 ### persons
 
 ```sql
 CREATE TABLE persons (
   id INTEGER PRIMARY KEY,
-  name TEXT,
-  type INTEGER,
-  career TEXT,
+  name TEXT,           -- Japanese kanji (no name_cn column)
+  type INTEGER,        -- 1=individual, 2=company, 3=group
+  infobox TEXT,        -- raw Archive infobox for aliases/romanization
+  career_json TEXT,
   summary TEXT
 );
 ```
 
-MVP 只保留 `type = 1` 的真实个人。
+Only `type = 1` (real individuals) are default graph nodes. **No `name_cn` column exists**. Search and display-name variants use the raw Archive `infobox` plus CJK variant mapping to bridge simplified Chinese, aliases, kana, and romanized names without inventing translations. API responses expose `name` and, when present, `nameCn` extracted from the Archive `简体中文名` field.
 
 ### credits
 
@@ -60,19 +56,63 @@ CREATE TABLE credits (
   subject_id INTEGER,
   person_id INTEGER,
   position_id INTEGER,
+  raw_position TEXT,
   position_cn TEXT,
   position_en TEXT,
   position_jp TEXT,
   normalized_role TEXT,
-  role_tier TEXT,
-  role_weight DOUBLE,
+  role_tier TEXT,       -- S, A, B, C, D, E, or F
+  role_weight DOUBLE,   -- 50.0 to 0.3, exponential scale
   appear_eps TEXT
 );
 ```
 
-`credits` 是最重要的事实表。所有人物关系必须能回溯到这里。
+`credits` is the central fact table. All person-person edges are derived from it. Positions are mapped from Bangumi numeric IDs via `staff_positions`.
 
-Bangumi Archive 当前快照中，`subject-persons.jsonlines` 的 `position` 是数字职位常量。实现中使用 `bangumi/common` 的 `subject_staffs.yml` 将其映射为中文、英文、日文职位标签，再归一化到 Staff Galaxy 的 role tier。
+### data_snapshots
+
+```sql
+CREATE TABLE data_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  archive_name TEXT,
+  archive_created_at TEXT,
+  archive_size_bytes BIGINT,
+  built_at TIMESTAMP,
+  source_url TEXT
+);
+```
+
+The full rebuild records the current Bangumi Archive zip as `snapshot_id = 'current'`. Existing local databases can be backfilled with `scripts/migrate_data_snapshot.py`. The API exposes this metadata through `/api/manifest`, person detail/credits responses, and collaboration evidence responses so graph facts can be tied back to a concrete Archive snapshot.
+
+### person_search_terms
+
+```sql
+CREATE TABLE person_search_terms (
+  person_id INTEGER,
+  term TEXT,
+  term_norm TEXT,
+  term_compact TEXT,
+  term_kind TEXT
+);
+```
+
+`person_search_terms` is rebuilt from `persons.name` and selected real Archive infobox fields such as `简体中文名`, `英文名`, `日文名`, `纯假名`, `罗马字`, and aliases. The API searches normalized and compact forms with multi-term AND matching.
+
+### staff_positions
+
+```sql
+CREATE TABLE staff_positions (
+  position_id INTEGER PRIMARY KEY,
+  cn TEXT,
+  en TEXT,
+  jp TEXT,
+  normalized_role TEXT,
+  role_tier TEXT,
+  role_weight DOUBLE
+);
+```
+
+163 position definitions. Tier and weight assignments live in `staff_galaxy/roles.py`.
 
 ## Visible Graph Model
 
@@ -92,15 +132,13 @@ CREATE TABLE visible_person_edges (
 );
 ```
 
-只保存默认星图或局部星团中值得显示的稀疏人物边。
-
-当前 MVP 数据库实现先生成 Tier A 默认骨架边：
+Built from credits where `role_weight >= 12.0` (S+A+B tiers). Filters:
 
 ```text
 sharedWorksCount >= 2 OR top 10 strongest neighbors per endpoint
 ```
 
-2026-05-19 快照下，该规则生成 `113,943` 条可见边，覆盖 `11,571` 位人物。
+Current snapshot: ~518,581 edges across ~21,006 people.
 
 ### graph_nodes
 
@@ -118,265 +156,115 @@ CREATE TABLE graph_nodes (
 );
 ```
 
-坐标必须离线计算并固定保存。前端首次打开不运行完整力导向布局。
+Coordinates use `deterministic_spiral_v1` layout. Node size is log-scaled against `visible_weighted_degree`.
 
-当前数据库实现先为 Tier A 人物生成稳定的 `deterministic_spiral_v1` 坐标，作为导出和前端接线用的占位布局。正式视觉版本仍应替换为 ForceAtlas2 或 Leiden/ForceAtlas2 离线布局。
+## Role Tier System
 
-## Detail Views
+Six tiers with exponential weights:
 
-数据库还提供几个查询视图，服务人物详情和边详情：
-
-```sql
-credit_details
-person_role_counts
-person_anime_stats
-visible_edge_details
-```
-
-其中：
-
-- `credit_details` 展开人物、作品、职位、tier，用于人物详情和双人共同作品查询。
-- `person_role_counts` 统计某个人的职位分布。
-- `person_anime_stats` 统计某个人动画 credit 数、参与作品数、A/B/C tier 分布、首次和最近年份。
-- `visible_edge_details` 展开默认骨架边两端人物名和合作强度。
-
-## Collaboration Edge Shape
-
-前端展示层可以使用：
-
-```ts
-interface CollaborationEdge {
-  sourcePersonId: number;
-  targetPersonId: number;
-  sharedWorksCount: number;
-  visibleScore: number;
-  firstCollaborationYear?: number;
-  lastCollaborationYear?: number;
-  topEvidence: Array<{
-    subjectId: number;
-    subjectName: string;
-    year?: number;
-    sourceRole: string;
-    targetRole: string;
-  }>;
-}
-```
-
-默认 backbone 边可以更轻：
-
-```ts
-interface VisibleEdge {
-  id: string;
-  source: number;
-  target: number;
-  sharedWorksCount: number;
-  collaborationScore: number;
-  strongestRolePairs: Array<{
-    sourceRole: string;
-    targetRole: string;
-    count: number;
-  }>;
-  sampleSubjects: Array<{
-    id: number;
-    name: string;
-    year?: number;
-  }>;
-}
-```
-
-## Role Tiers
-
-### Tier A: Core Global Graph Roles
-
-用于默认全局骨架图：
-
-- 监督 / 監督 / 导演 -> `director`
-- 副监督 / 副監督 / 副导演 -> `assistant_director`
-- 系列构成 / シリーズ構成 -> `series_composition`
-- 角色设计 / キャラクターデザイン -> `character_design`
-- 总作画监督 / 総作画監督 -> `chief_animation_director`
-- 动画制片人 / アニメーションプロデューサー -> `animation_producer`
-- 制片人 / プロデューサー -> `producer`
-- 音乐 / 音楽 -> `music`
-
-### Tier B: Extended Visible Roles
-
-用于放大、局部社区或更宽松默认图实验：
-
-- 分镜 / 絵コンテ -> `storyboard`
-- 演出 -> `episode_director`
-- 脚本 -> `script`
-- 作画监督 / 作画監督 -> `animation_director`
-- 美术监督 / 美術監督 -> `art_director`
-- 摄影监督 / 撮影監督 -> `photography_director`
-- 音响监督 / 音響監督 -> `sound_director`
-
-### Tier C: Evidence Only For MVP
-
-证据层保留，默认总星系不展开：
-
-- 原画 -> `key_animation`
-- 第二原画 -> `second_key_animation`
-- 制作进行 / 制作進行 -> `production_assistant`
-- 设定制作 / 設定制作 -> `setting_production`
+| Tier | Weight | Count | Description |
+|---|---|---|---|
+| S | 50.0 | 2 | Director, Chief Director |
+| A | 25.0 | 7 | Original Creator, Series Composition, Character Design, etc. |
+| B | 12.0 | 15 | Script, Music, Storyboard, Episode Director, Producer, etc. |
+| C | 6.0 | 40 | Department heads: Art Director, Photography Director, Sound Director, etc. |
+| D | 3.0 | 76 | Skilled production: Key Animation, Background Art, Photography, etc. |
+| E | 1.0 | 15 | Support: In-Between Animation, Digital Paint, Production Assistant |
+| F | 0.3 | 6 | Minimal: Special Thanks, Assistance, Production Company |
 
 ## Collaboration Scoring
 
-初始权重：
-
-```ts
-const ROLE_VISIBILITY_WEIGHT = {
-  director: 10,
-  assistant_director: 8,
-  series_composition: 8,
-  animation_producer: 8,
-  character_design: 7,
-  chief_animation_director: 7,
-  producer: 6,
-  music: 5,
-  storyboard: 4,
-  episode_director: 4,
-  script: 4,
-  animation_director: 3,
-  art_director: 3,
-  photography_director: 3,
-  sound_director: 3,
-  key_animation: 1,
-  second_key_animation: 1,
-  production_assistant: 1,
-  setting_production: 1
-};
-```
-
-单部作品中的一次合作贡献：
+Per shared work:
 
 ```text
-contribution = sqrt(roleWeightA * roleWeightB)
+contribution = SQRT(role_weight_a × role_weight_b)
 ```
 
-总合作强度：
+Total:
 
 ```text
-collaborationScore =
-  all shared work contributions
-  + repeated collaboration bonus
+collaboration_score = SUM(contribution) across all shared works
 ```
 
-## Default Edge Visibility
+The geometric mean ensures both roles must be significant for a high score:
+- Two directors on 1 show = 50 points
+- Two key animators on ~17 shows ≈ 50 points
+- Director + in-betweener on 1 show ≈ 7 points
 
-一条边进入默认图，应满足至少一个条件：
+## Graph Backbone Selection
 
-- 两人共同参与作品数量 `>= 2`
-- `collaborationScore` 达到数据审计后确定的阈值
-- 这条边属于某个节点最强的前 `K` 个邻居
-- 用户主动搜索了其中一人或两人
+The graph backbone includes anyone with at least one credit at `role_weight >= 12.0` (S+A+B tiers). Edges are included if:
 
-`K` 的候选值：`8` 或 `12`。真实取值必须由数据审计报告决定。
+1. `sharedWorksCount >= 2`, OR
+2. The edge is among the top 10 strongest per endpoint
 
-## Static Data Export Shape
+This replaced the old "Tier A only" approach, broadening the graph while maintaining readable density.
+
+## API Architecture
+
+### Endpoint Design
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/graph/{level}/nodes` | GET | Galaxy nodes (global, l0, l1) |
+| `/api/graph/{level}/edges` | GET | Galaxy edges with sharedWorksCount, collaborationScore |
+| `/api/person/{id}/galaxy` | GET | Person-centered galaxy with data-driven layout |
+| `/api/search/persons` | GET | Search with CJK variant expansion |
+| `/api/collaboration/{a}/{b}` | GET | Shared works with per-person roles |
+| `/api/path/{a}/{b}` | GET | BFS shortest paths between two people |
+
+### Search Design
+
+Single-input unified search that auto-detects:
+- **Numeric ID**: Exact match + ILIKE fallback
+- **Text query**: Multi-term AND matching with CJK variant expansion per term
+- **CJK variants**: ~150 simplified→Japanese kanji pairs, Cartesian product capped at 12 variants
+- **Archive aliases**: Selected `infobox` fields and aliases are normalized into `person_search_terms`
+- **Fuzzy fallback**: If exact/prefix/contains search leaves room, bounded typo matching runs against compact indexed terms. ASCII/romanized typos use DuckDB `damerau_levenshtein`; CJK/kana typos use a bounded Unicode edit-distance pass over same-prefix, similar-length candidates.
+
+### Display Names
+
+Person payloads include original `name` and optional Archive-provided `nameCn`. The frontend stores `staffGalaxy.personNameMode` in localStorage and supports:
+
+- `original`: show Archive original/Japanese name.
+- `cn`: show `nameCn` when present; otherwise fall back to `name`.
+
+When simplified Chinese is primary and the original differs, panels and search pills show the original as secondary context.
+
+### Path Finding
+
+BFS with multi-parent tracking returns all shortest paths. Each path includes node IDs and edge metadata (sharedWorksCount per step). Frontend renders as depth-layered SVG constellation.
+
+## Detail Views
+
+```sql
+credit_details          -- credits + subject name + person name
+cast_details            -- person_characters expanded
+anime_participation_details  -- UNION of staff and cast
+person_role_counts      -- credit count per person per role
+person_anime_stats      -- per-person summary with tier breakdowns (S/A/B/C/D/EF)
+visible_edge_details    -- visible edges + both person names
+```
+
+## Frontend Data Flow
 
 ```text
-public/data/
-├── manifest.json
-├── galaxy/
-│   ├── nodes.json
-│   ├── edges-backbone.json
-│   └── communities.json
-├── communities/
-│   ├── community-001.json
-│   ├── community-002.json
-│   └── ...
-├── persons/
-│   ├── person-123.json
-│   ├── person-456.json
-│   └── ...
-└── search/
-    └── persons-index.json
+App.tsx (mount)
+  → loadLevel('global')  →  GET /api/graph/global/nodes + edges
+  → buildGraph()         →  Graphology graph instance
+  → CosmosGalaxyView     →  WebGL render
+
+User clicks node
+  → loadPersonGalaxy(id) →  GET /api/person/{id}/galaxy
+  → swapGraph()          →  mutate existing Graphology instance
+  → NodePanel opens      →  sidebar with neighbor list
+
+User expands collaboration
+  → loadCollaborationDetail(a, b) → GET /api/collaboration/{a}/{b}
+  → shows shared works, roles, years
+
+User opens constellation
+  → ConstellationView    →  two SearchBars
+  → loadShortestPath(a,b) → GET /api/path/{a}/{b}
+  → SVG rendering        →  Bezier curves connecting depth-layered nodes
 ```
-
-### manifest.json
-
-```json
-{
-  "snapshotDate": "2026-05-01",
-  "nodeCount": 8200,
-  "backboneEdgeCount": 18000,
-  "communityCount": 74,
-  "dataSource": "Bangumi Archive",
-  "roleLayer": "core"
-}
-```
-
-### galaxy/nodes.json
-
-```json
-[
-  {
-    "id": 123,
-    "name": "人物名",
-    "x": 0.183,
-    "y": -0.442,
-    "size": 3.6,
-    "community": 12,
-    "visibleDegree": 7
-  }
-]
-```
-
-### galaxy/edges-backbone.json
-
-```json
-[
-  {
-    "source": 123,
-    "target": 456,
-    "weight": 12.4,
-    "sharedWorksCount": 3
-  }
-]
-```
-
-### persons/person-123.json
-
-```json
-{
-  "id": 123,
-  "name": "人物名",
-  "roles": [
-    {
-      "role": "director",
-      "count": 2
-    }
-  ],
-  "credits": [
-    {
-      "subjectId": 1001,
-      "subjectName": "作品 A",
-      "year": 2022,
-      "position": "监督"
-    }
-  ],
-  "visibleNeighbors": [
-    {
-      "personId": 456,
-      "sharedWorksCount": 3,
-      "score": 12.4
-    }
-  ]
-}
-```
-
-## Two Person Comparison
-
-MVP 不生成 `pairs/123-456.json` 这类文件。
-
-双人比较流程：
-
-```text
-load persons/person-A.json
-load persons/person-B.json
-intersect credits by subjectId
-render shared works and both roles
-```
-
-如果证据层存在共同作品，但默认图中没有该边，前端临时添加一条高亮虚线边。
