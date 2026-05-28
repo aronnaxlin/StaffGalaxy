@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 11:07 Asia/Shanghai
+Last updated: 2026-05-28 11:16 Asia/Shanghai
 
 ## Current State
 
@@ -13,6 +13,26 @@ Last updated: 2026-05-28 11:07 Asia/Shanghai
 ## Verified This Turn
 
 - Read required project and `karpathy-guidelines` instructions.
+- Added first-class frontend graph level switching:
+  - Root galaxy routes now accept `/?level=l0` and `/?level=l1`, with invalid or missing level falling back to `global`.
+  - Top toolbar now has a compact `全量星系` / `核心视图` / `细节视图` switcher.
+  - Switching levels updates browser history and loads the matching API graph level.
+  - Returning from a person galaxy now goes back to `/` and the global graph.
+- Fixed a layout overlap: the person-galaxy `返回全量星系` button now sits above the lower-left graph legend instead of under the right-side detail panel.
+- Browser smoke checked production preview:
+  - `/?level=l0` rendered `l0` with 1,477 nodes and 134,931 total edges.
+  - Toolbar switch to `/?level=l1` rendered `l1` with 4,422 nodes and 119,441 total edges.
+  - `/person/1040` → `返回全量星系` returned to `/` and rendered the global graph.
+  - Console check returned no warnings or errors.
+- Updated README route examples, implementation roadmap, and `reports/graph-performance.md` with the new graph-level route smoke timings.
+- Confirmed backend regression tests pass: `.venv/bin/python -m unittest -v tests.test_api_complete_graph`.
+- Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
+- Confirmed whitespace check passes: `git diff --check`.
+
+## Previously Verified
+
+- Read required project and `karpathy-guidelines` instructions.
 - Updated delivery documentation:
   - `README.md` now includes Python setup, frontend dependency install, database rebuild commands, focused migrations, local dev startup, production preview, shareable route examples, verification commands, environment variables, API overview, and core data semantics.
   - `docs/staff-galaxy/data-model-and-architecture.md` now documents complete `person_collaboration_edges`, sparse `visible_person_edges`, snapshot/search tables, the current API endpoint layering, direct compare route behavior, frontend data flows, runtime metrics, and rebuild/migration/preview workflows.
@@ -22,8 +42,6 @@ Last updated: 2026-05-28 11:07 Asia/Shanghai
 - Confirmed Python modules and tests compile: `.venv/bin/python -m compileall staff_galaxy scripts tests`.
 - Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
 - Confirmed whitespace check passes: `git diff --check`.
-
-## Previously Verified
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added lightweight frontend runtime instrumentation:
@@ -253,14 +271,14 @@ Last updated: 2026-05-28 11:07 Asia/Shanghai
 
 - Data/schema: in progress. Core Bangumi Archive import exists; complete staff collaboration edge table now exists; visible graph remains a separate display layer; staff credits now include `raw_position` alongside normalized role metadata; `data_snapshots` records the current Archive source for evidence traceability.
 - Search: in progress. Unified person search supports numeric ID, CJK variant expansion, Archive infobox aliases, kana, romanized names, and bounded fuzzy typo fallback through a DB-backed `person_search_terms` table with focused backend regression coverage and real-DB timing samples. Broader ranking/percentile tuning remains.
-- Global graph: in progress. Cosmos.gl renderer consumes sparse `visible_person_edges`; complete evidence is preserved in DuckDB.
+- Global graph: in progress. Cosmos.gl renderer consumes sparse `visible_person_edges`; `global`, `l0`, and `l1` levels are selectable from the toolbar and shareable via `/?level=...`; complete evidence is preserved in DuckDB.
 - Person graph/detail: in progress. Person-centered galaxy, sidebar summary stats/recent works, expandable complete credit history, and expandable collaboration detail exist.
 - Two-person comparison: in progress. Constellation view now shows direct-collaboration evidence for degree-1 pairs and an explicit no-direct hint for degree-2+ pairs; `/compare?from=...&to=...` is shareable and person-panel collaborator rows can open it directly.
 - Path: in progress. Backend now uses `person_collaboration_edges`, not `visible_person_edges`; frontend constellation view shows shortest paths and expandable per-hop evidence, and path URLs can be shared.
 - Information panel/external links: in progress. Search results, selected search pills, person detail footer, shared-work cards, and constellation path labels now expose Bangumi links; person/detail/collaboration evidence surfaces now include snapshot metadata; subject display preference and person display-name preference exist with localStorage-backed toggles. Traditional-name mode remains pending because no verified source field has been wired yet.
 - UI/design: in progress. Obsidian-like graph style exists, and `docs/DESIGN.md` now records tokens, layout rules, component states, and Bangumi-inspired constraints; implementation still needs further token extraction.
-- Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search. Browser smoke checks cover the link/preference/detail/path-evidence/credit-history/shareable-route surfaces, and production-preview runtime metrics now cover global graph, person graph, compare, path, collaboration expansion, graph endpoint payload timing, and search distribution samples.
-- Routing/history: in progress. Shareable person/path/compare URLs exist and the known browser back divergence between `/path`, `/person/{id}`, and `/` is fixed.
+- Tests/performance: partial. Build/compile/API smoke checks pass, backend regression tests cover complete-vs-visible graph separation, path, collaboration detail, person detail, person credits/raw roles, and basic search. Browser smoke checks cover the link/preference/detail/path-evidence/credit-history/shareable-route/graph-level surfaces, and production-preview runtime metrics now cover global graph, l0/l1 graph levels, person graph, compare, path, collaboration expansion, graph endpoint payload timing, and search distribution samples.
+- Routing/history: in progress. Shareable graph-level/person/path/compare URLs exist and the known browser back divergence between `/path`, `/person/{id}`, and `/` is fixed.
 - Deployment/docs: partial. `.env.example`, `.gitignore`, README setup/import/test/API/local-preview notes, and architecture/rebuild/migration docs are now aligned with the current implementation; deployment remains intentionally local-only.
 
 ## Next Best Work

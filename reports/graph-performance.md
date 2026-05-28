@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 10:56 Asia/Shanghai
+Last updated: 2026-05-28 11:16 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,8 +35,8 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-DvZ06imf.css` | 28.89 KB | 5.87 KB |
-| `dist/assets/index-CoTyauR5.js` | 655.78 KB | 187.47 KB |
+| `dist/assets/index-CmmcvV3W.css` | 29.13 KB | 5.90 KB |
+| `dist/assets/index-DgJls78V.js` | 656.60 KB | 187.66 KB |
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
@@ -66,6 +66,8 @@ Backend was the local FastAPI server on `http://127.0.0.1:8000`.
 | `/api/graph/l0/edges` | 19.44 MB, 134,931 rows | 376.0 ms |
 | `/api/graph/l1/nodes` | 0.81 MB, 4,422 rows | 75.5 ms |
 | `/api/graph/l1/edges` | 17.72 MB, 119,441 rows | 288.0 ms |
+| `/?level=l0` | `cosmos-ready`, l0, 1,477 nodes, 134,931 total edges, 318 visible at cutoff 24 | 1,157.5 ms from navigation start |
+| toolbar switch to `/?level=l1` | `cosmos-ready`, l1, 4,422 nodes, 119,441 total edges, 526 visible at cutoff 24 | 1,987.3 ms from first navigation start |
 | `/person/1040` | `cosmos-ready`, person, 94 nodes, 93 edges | 185.9 ms from navigation start |
 | `/api/person/1040/detail` | summary stats and recent works | 92.5 ms through preview browser proxy |
 | Expand `宮崎駿` ↔ `鈴木敏夫` collaboration | `/api/collaboration/1040/2215` | 189.7 ms through preview browser proxy |
@@ -73,6 +75,13 @@ Backend was the local FastAPI server on `http://127.0.0.1:8000`.
 | `/path?from=1040&to=11706` | 2-degree non-direct path | 3,049.0 ms to rendered path; path API 3,015.9 ms |
 
 Production preview console check after this measurement returned no warnings or errors.
+
+Additional production-preview route smoke:
+
+- Direct `/?level=l0` opened the core graph and preserved the URL.
+- Toolbar `细节视图` switched to `/?level=l1` and rendered the detail graph.
+- `/person/1040` → `返回全量星系` returned to `/` without the side panel covering the control.
+- Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):
 

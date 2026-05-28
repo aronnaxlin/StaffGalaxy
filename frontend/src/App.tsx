@@ -11,8 +11,11 @@ import type { PersonNameMode } from './types'
 
 type ViewMode = 'galaxy' | 'constellation'
 type ConstellationMode = 'path' | 'compare'
+type GraphLevel = Exclude<Level, 'person'>
 
 const PANEL_NEIGHBOR_LIMIT = 120
+
+const GRAPH_LEVELS: GraphLevel[] = ['global', 'l0', 'l1']
 
 const LEVEL_LABELS: Record<Level, string> = {
   person: '个人星系',
@@ -48,12 +51,49 @@ function PersonNameModeToggle({
   )
 }
 
+function GraphLevelToggle({
+  level,
+  onChange,
+}: {
+  level: Level
+  onChange: (level: GraphLevel) => void
+}) {
+  return (
+    <div className="flex overflow-hidden rounded border border-slate-700/50 bg-black/30 text-[10px] backdrop-blur">
+      {GRAPH_LEVELS.map(option => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={`px-2 py-1 transition-colors ${
+            level === option
+              ? 'bg-slate-700/70 text-slate-100'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+          title={option === 'global'
+            ? 'Sparse global graph'
+            : option === 'l0'
+              ? 'Dense core graph'
+              : 'Mid-density detail graph'}
+        >
+          {LEVEL_LABELS[option]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 interface AppRoute {
   view: ViewMode
   personId?: string
+  graphLevel?: GraphLevel
   constellationMode?: ConstellationMode
   pathFrom?: string
   pathTo?: string
+}
+
+function readGraphLevel(value: string | null): GraphLevel {
+  return value === 'l0' || value === 'l1' ? value : 'global'
 }
 
 function readRoute(): AppRoute {
@@ -70,7 +110,7 @@ function readRoute(): AppRoute {
       pathTo: url.searchParams.get('to') ?? url.searchParams.get('b') ?? undefined,
     }
   }
-  return { view: 'galaxy' }
+  return { view: 'galaxy', graphLevel: readGraphLevel(url.searchParams.get('level')) }
 }
 
 function writeRoute(path: string, replace = false) {
@@ -82,6 +122,10 @@ function constellationPath(mode: ConstellationMode, personAId?: string | null, p
   const basePath = mode === 'compare' ? '/compare' : '/path'
   if (!personAId || !personBId) return basePath
   return `${basePath}?from=${encodeURIComponent(personAId)}&to=${encodeURIComponent(personBId)}`
+}
+
+function graphLevelPath(graphLevel: GraphLevel) {
+  return graphLevel === 'global' ? '/' : `/?level=${graphLevel}`
 }
 
 export default function App() {
@@ -114,11 +158,11 @@ export default function App() {
     }
   }, [])
 
-  const loadGlobalView = useCallback((updateUrl = true) => {
-    const nextRoute = { view: 'galaxy' as const }
+  const loadGraphLevelView = useCallback((graphLevel: GraphLevel = 'global', updateUrl = true) => {
+    const nextRoute = { view: 'galaxy' as const, graphLevel }
     setRoute(nextRoute)
     if (updateUrl) {
-      writeRoute('/')
+      writeRoute(graphLevelPath(graphLevel))
     }
   }, [])
 
@@ -157,10 +201,11 @@ export default function App() {
         return
       }
 
-      const data = await loadLevel('global')
+      const graphLevel = route.graphLevel ?? 'global'
+      const data = await loadLevel(graphLevel)
       if (cancelled) return
-      setGraph(buildGraph(data, 'global'))
-      setLevel('global')
+      setGraph(buildGraph(data, graphLevel))
+      setLevel(graphLevel)
       setSelectedNode(null)
       setLoading(false)
     }
@@ -176,6 +221,10 @@ export default function App() {
   const handleSearchSelect = useCallback((entry: { id: string }) => {
     void loadPersonView(entry.id)
   }, [loadPersonView])
+
+  const handleGraphLevelChange = useCallback((nextLevel: GraphLevel) => {
+    void loadGraphLevelView(nextLevel)
+  }, [loadGraphLevelView])
 
   const handleConstellationNodeClick = useCallback((nodeId: string) => {
     setView('galaxy')
@@ -277,7 +326,7 @@ export default function App() {
           level={level}
           selectedNode={selectedNode}
           personNameMode={personNameMode}
-          onBackToGlobal={loadGlobalView}
+          onBackToGlobal={() => loadGraphLevelView('global')}
         />
       )}
 
@@ -297,7 +346,10 @@ export default function App() {
             关系星图
           </button>
         </div>
-        <div className="text-xs text-slate-500 tracking-wider ml-auto px-2 py-0.5 rounded border border-slate-700/50 bg-black/30 backdrop-blur">
+        <div className="pointer-events-auto ml-auto">
+          <GraphLevelToggle level={level} onChange={handleGraphLevelChange} />
+        </div>
+        <div className="text-xs text-slate-500 tracking-wider px-2 py-0.5 rounded border border-slate-700/50 bg-black/30 backdrop-blur">
           {LEVEL_LABELS[level]}
         </div>
         <div className="pointer-events-auto">

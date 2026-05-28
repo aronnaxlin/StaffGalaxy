@@ -89,6 +89,8 @@ http://127.0.0.1:5173/
 常用分享路由：
 
 ```text
+/?level=l0
+/?level=l1
 /person/1040
 /compare?from=1040&to=2215
 /path?from=1040&to=11706

@@ -21,6 +21,7 @@
 ### Phase 3: Frontend Core ✓
 - React + Cosmos.gl WebGL galaxy renderer.
 - Zoom-dependent edge LOD.
+- Global graph level switcher for `global`, `l0`, and `l1`, with shareable `/?level=...` URLs.
 - Person-centered galaxy view with back-to-global navigation.
 - Person detail sidebar with summary stats, complete credit history, expandable collaboration cards, and add-to-compare actions.
 - Unified search bar with locked-pill mode.

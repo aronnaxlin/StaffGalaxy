@@ -370,7 +370,7 @@ export function CosmosGalaxyView({
       </div>
 
       {level === 'person' && (
-        <div className="absolute bottom-4 right-4 z-20">
+        <div className="absolute bottom-20 left-4 z-20">
           <button
             type="button"
             onClick={onBackToGlobal}
