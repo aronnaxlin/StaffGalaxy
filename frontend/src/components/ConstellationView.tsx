@@ -4,6 +4,16 @@ import { personUrl, subjectUrl } from '../data/links'
 import { displayPersonName } from '../data/personNames'
 import type { SearchEntry, PathResult, CollaborationDetail, PersonNameMode } from '../types'
 import { SearchBar } from './SearchBar'
+import {
+  mutedLink,
+  panelInset,
+  panelShell,
+  panelSoft,
+  sectionLabel,
+  segmentedButtonClass,
+  segmentedGroupClass,
+  subtleLink,
+} from './ui'
 
 interface ConstellationViewProps {
   mode: 'path' | 'compare'
@@ -56,7 +66,7 @@ function PathStepEvidence({
 }) {
   if (loading) {
     return (
-      <div className="mt-1 rounded border border-slate-800/70 bg-slate-950/60 px-2 py-1 text-[10px] text-slate-500">
+      <div className={`${panelInset} mt-1 px-2 py-1 text-[10px] text-slate-500`}>
         证据加载中…
       </div>
     )
@@ -64,7 +74,7 @@ function PathStepEvidence({
 
   if (error) {
     return (
-      <div className="mt-1 rounded border border-red-900/50 bg-red-950/20 px-2 py-1 text-[10px] text-red-300">
+      <div className="mt-1 rounded-md border border-red-900/50 bg-red-950/20 px-2 py-1 text-[10px] text-red-300">
         {error}
       </div>
     )
@@ -73,7 +83,7 @@ function PathStepEvidence({
   if (!detail) return null
 
   return (
-    <div className="mt-1 rounded border border-slate-800/70 bg-slate-950/70 p-2">
+    <div className={`${panelInset} mt-1 p-2`}>
       <div className="mb-1 text-[10px] text-slate-500">
         {detail.sharedWorksCount} 部共同作品 · score {detail.collaborationScore.toFixed(1)}
       </div>
@@ -88,7 +98,7 @@ function PathStepEvidence({
                 href={subjectUrl(work.subjectId)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-slate-300 hover:text-cyan-300 transition-colors"
+                className={subtleLink}
                 title={`Bangumi subject #${work.subjectId}`}
               >
                 {workTitle(work)}
@@ -328,28 +338,24 @@ export function ConstellationView({
   return (
     <div className="w-full h-full bg-[#080810] flex overflow-hidden">
       {/* Left: search sidebar */}
-      <div className="w-72 shrink-0 border-r border-slate-800/50 bg-black/30 flex flex-col p-4 gap-3 z-20">
+      <div className="z-20 flex w-[19rem] shrink-0 flex-col gap-3 border-r border-slate-800/50 bg-black/30 p-4">
         <button
           onClick={onBack}
-          className="text-xs px-3 py-1.5 rounded border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors w-fit"
+          className={`${panelShell} w-fit px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-slate-200`}
         >
           ← 返回星系
         </button>
 
-        <div className="text-xs font-medium text-slate-400 tracking-wider uppercase">
+        <div className={sectionLabel}>
           {isCompareMode ? '双人比较' : '关系星图'}
         </div>
-        <div className="flex w-fit overflow-hidden rounded border border-slate-700/50 text-[10px]">
+        <div className={`${segmentedGroupClass} w-fit`}>
           {(['original', 'cn'] as const).map(mode => (
             <button
               key={mode}
               type="button"
               onClick={() => onPersonNameModeChange(mode)}
-              className={`px-2 py-1 transition-colors ${
-                personNameMode === mode
-                  ? 'bg-cyan-900/50 text-cyan-200'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
+              className={segmentedButtonClass(personNameMode === mode, 'cyan')}
             >
               {mode === 'original' ? '原名' : '简中'}
             </button>
@@ -358,24 +364,26 @@ export function ConstellationView({
 
         <div className="space-y-2">
           <div>
-            <div className="text-[10px] text-slate-500 mb-1">起点</div>
+            <div className={`${sectionLabel} mb-1`}>起点</div>
             <SearchBar
               onSelect={(entry) => { setPersonA(entry); clearResult() }}
               selectedEntry={personA}
               onClear={() => { setPersonA(null); clearResult() }}
               personNameMode={personNameMode}
+              className="w-full"
             />
           </div>
-          <div className="text-center text-slate-600 text-xs">
+          <div className="text-center text-xs text-slate-600">
             {isCompareMode ? '↓ 比较 ↓' : '↓ 连接到 ↓'}
           </div>
           <div>
-            <div className="text-[10px] text-slate-500 mb-1">终点</div>
+            <div className={`${sectionLabel} mb-1`}>终点</div>
             <SearchBar
               onSelect={(entry) => { setPersonB(entry); clearResult() }}
               selectedEntry={personB}
               onClear={() => { setPersonB(null); clearResult() }}
               personNameMode={personNameMode}
+              className="w-full"
             />
           </div>
         </div>
@@ -384,9 +392,7 @@ export function ConstellationView({
           type="button"
           disabled={!personA || !personB || loading}
           onClick={() => void handleFind()}
-          className="w-full py-1.5 rounded-lg text-xs font-medium transition-colors
-            disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed
-            bg-cyan-900/50 text-cyan-200 hover:bg-cyan-800/60 border border-cyan-600/30"
+          className="w-full rounded-lg border border-cyan-600/30 bg-cyan-950/45 py-2 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-900/55 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900/50 disabled:text-slate-600"
         >
           {loading ? '探寻中…' : isCompareMode ? '比较合作与路径' : '探寻路径'}
         </button>
@@ -398,9 +404,9 @@ export function ConstellationView({
         )}
 
         {directChecked && personA && personB && (
-          <div className="mt-1 rounded-lg border border-slate-800/70 bg-slate-950/70 p-3">
+          <div className={`${panelSoft} mt-1 p-3`}>
             <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+              <div className={sectionLabel}>
                 {isCompareMode ? '直接合作比较' : '直接合作'}
               </div>
               {directDetail && (
@@ -429,7 +435,7 @@ export function ConstellationView({
                           href={subjectUrl(work.subjectId)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-slate-300 hover:text-cyan-300 transition-colors"
+                          className={subtleLink}
                           title={`Bangumi subject #${work.subjectId}`}
                         >
                           {workTitle(work)}
@@ -464,7 +470,7 @@ export function ConstellationView({
         {/* Path legend */}
         {result?.found && result.paths && (
           <div className="mt-2 space-y-1.5">
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+            <div className={sectionLabel}>
               {result.degree === 1 ? '直接合作' : `${result.degree} 度分隔`} · {result.pathCount} 条路径
             </div>
             {result.paths.map((path, i) => {
@@ -472,7 +478,7 @@ export function ConstellationView({
               return (
                 <div
                   key={i}
-                  className={`rounded border border-transparent px-1 py-1 transition-opacity ${
+                  className={`rounded-lg border border-transparent px-1 py-1 transition-opacity ${
                     highlightPath === null || highlightPath === i ? 'opacity-100' : 'opacity-30'
                   }`}
                   onMouseEnter={() => setHighlightPath(i)}
@@ -488,7 +494,7 @@ export function ConstellationView({
                             href={personUrl(id)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-slate-400 hover:text-cyan-300 transition-colors"
+                            className={mutedLink}
                             title={`Bangumi person #${id}`}
                           >
                             {peopleById.get(id) ?? id}
@@ -507,7 +513,7 @@ export function ConstellationView({
                           <button
                             type="button"
                             onClick={() => void handleToggleStep(key, step.source, step.target)}
-                            className={`w-full rounded px-1.5 py-1 text-left text-[10px] transition-colors ${
+                            className={`w-full rounded-md px-1.5 py-1 text-left text-[10px] transition-colors ${
                               expanded
                                 ? 'bg-cyan-950/30 text-cyan-200'
                                 : 'text-slate-500 hover:bg-slate-900/70 hover:text-slate-300'

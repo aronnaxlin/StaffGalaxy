@@ -6,6 +6,7 @@ import { CosmosGalaxyView } from './components/CosmosGalaxyView'
 import { ConstellationView } from './components/ConstellationView'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
+import { panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
 import type { PersonNameMode } from './types'
 
@@ -32,17 +33,13 @@ function PersonNameModeToggle({
   onChange: (mode: PersonNameMode) => void
 }) {
   return (
-    <div className="flex overflow-hidden rounded border border-slate-700/50 bg-black/30 text-[10px] backdrop-blur">
+    <div className={segmentedGroupClass}>
       {(['original', 'cn'] as const).map(option => (
         <button
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={`px-2 py-1 transition-colors ${
-            mode === option
-              ? 'bg-cyan-900/50 text-cyan-200'
-              : 'text-slate-500 hover:text-slate-300'
-          }`}
+          className={segmentedButtonClass(mode === option, 'cyan')}
         >
           {option === 'original' ? '原名' : '简中'}
         </button>
@@ -59,17 +56,13 @@ function GraphLevelToggle({
   onChange: (level: GraphLevel) => void
 }) {
   return (
-    <div className="flex overflow-hidden rounded border border-slate-700/50 bg-black/30 text-[10px] backdrop-blur">
+    <div className={segmentedGroupClass}>
       {GRAPH_LEVELS.map(option => (
         <button
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={`px-2 py-1 transition-colors ${
-            level === option
-              ? 'bg-slate-700/70 text-slate-100'
-              : 'text-slate-500 hover:text-slate-300'
-          }`}
+          className={segmentedButtonClass(level === option, 'slate')}
           title={option === 'global'
             ? 'Sparse global graph'
             : option === 'l0'
@@ -331,17 +324,24 @@ export default function App() {
       )}
 
       <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
-        <div className="text-sm font-medium text-slate-400 tracking-widest uppercase">
-          Staff Galaxy
+        <div className={`${panelShell} flex shrink-0 items-center gap-3 px-3 py-2`}>
+          <div>
+            <div className="whitespace-nowrap text-sm font-semibold tracking-[0.22em] text-slate-200 uppercase">
+              Staff Galaxy
+            </div>
+            <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Bangumi Archive
+            </div>
+          </div>
         </div>
         <div className="pointer-events-auto">
-          <SearchBar onSelect={handleSearchSelect} personNameMode={personNameMode} />
+          <SearchBar onSelect={handleSearchSelect} personNameMode={personNameMode} className="w-64" />
         </div>
         <div className="pointer-events-auto">
           <button
             type="button"
             onClick={openConstellation}
-            className="text-xs px-2 py-1 rounded border border-slate-700/50 bg-black/30 text-slate-400 hover:text-cyan-300 hover:border-cyan-600/40 transition-colors"
+            className={`${panelShell} shrink-0 whitespace-nowrap px-3 py-2 text-xs text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-cyan-200`}
           >
             关系星图
           </button>
@@ -349,7 +349,7 @@ export default function App() {
         <div className="pointer-events-auto ml-auto">
           <GraphLevelToggle level={level} onChange={handleGraphLevelChange} />
         </div>
-        <div className="text-xs text-slate-500 tracking-wider px-2 py-0.5 rounded border border-slate-700/50 bg-black/30 backdrop-blur">
+        <div className="hidden rounded-full border border-slate-700/50 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-500 backdrop-blur lg:block">
           {LEVEL_LABELS[level]}
         </div>
         <div className="pointer-events-auto">

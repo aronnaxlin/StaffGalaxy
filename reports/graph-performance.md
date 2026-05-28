@@ -1,6 +1,6 @@
 # Graph Performance
 
-Last updated: 2026-05-28 11:16 Asia/Shanghai
+Last updated: 2026-05-28 11:46 Asia/Shanghai
 
 ## Data Snapshot
 
@@ -35,8 +35,8 @@ Measured against `uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8001`.
 | Asset | Size | Gzip |
 |---|---:|---:|
 | `dist/index.html` | 0.45 KB | 0.29 KB |
-| `dist/assets/index-CmmcvV3W.css` | 29.13 KB | 5.90 KB |
-| `dist/assets/index-DgJls78V.js` | 656.60 KB | 187.66 KB |
+| `dist/assets/index-BNJI9o8q.css` | 29.75 KB | 6.04 KB |
+| `dist/assets/index-pmBDDmVI.js` | 656.87 KB | 187.98 KB |
 
 Vite warns that the main JavaScript chunk is over 500 KB. Cosmos.gl is expected to be the largest dependency; code splitting remains a pending optimization.
 
@@ -82,6 +82,12 @@ Additional production-preview route smoke:
 - Toolbar `细节视图` switched to `/?level=l1` and rendered the detail graph.
 - `/person/1040` → `返回全量星系` returned to `/` without the side panel covering the control.
 - Console check returned no warnings or errors.
+- Bangumi-inspired panel refactor smoke:
+  - `/person/1040` rendered the redesigned toolbar and right detail panel without overlap at 1280×900.
+  - Search for `宫崎` opened the redesigned result dropdown with degree, Bangumi ID, and external-link affordances.
+  - `/compare?from=1040&to=2215` rendered the redesigned direct comparison sidebar with 31 shared works.
+  - `/path?from=1040&to=11706` rendered the redesigned non-direct path sidebar and evidence controls.
+  - Console check returned no warnings or errors.
 
 Search distribution sample against the local FastAPI server (`5` runs per query):
 

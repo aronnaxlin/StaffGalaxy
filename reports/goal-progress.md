@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 11:16 Asia/Shanghai
+Last updated: 2026-05-28 11:46 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,21 @@ Last updated: 2026-05-28 11:16 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Refactored existing UI panels toward the Bangumi-inspired direction in `docs/DESIGN.md`:
+  - Added shared frontend panel/control tokens for dark translucent panels, soft evidence blocks, segmented controls, pills, labels, dividers, and link affordances.
+  - Updated the global toolbar to use compact database-like shells, non-wrapping labels, and small-screen-safe level labeling.
+  - Updated search inputs, result dropdowns, and locked selected-person pills with denser metadata, rounded ID/degree pills, and cyan/pink interaction accents.
+  - Updated `NodePanel` summary, full-credit history, collaborator rows, collaboration evidence, and footer links to reduce nested-card weight while keeping evidence dense and scannable.
+  - Updated `ConstellationView` sidebar, locked search fields, direct collaboration panel, and path evidence blocks to share the same panel/control language.
+- Browser smoke checked production preview:
+  - `/person/1040` rendered the redesigned top toolbar and right detail panel without panel/control overlap at 1280×900.
+  - Search for `宫崎` opened the redesigned dropdown with degree and Bangumi ID metadata plus external links.
+  - `/compare?from=1040&to=2215` rendered the redesigned direct comparison sidebar with 31 shared works.
+  - `/path?from=1040&to=11706` rendered a non-direct path sidebar with redesigned controls/evidence blocks.
+  - Console check returned no warnings or errors.
+- Confirmed frontend production build passes: `npm run build`; Vite still warns that the main JS chunk exceeds 500 KB.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added first-class frontend graph level switching:

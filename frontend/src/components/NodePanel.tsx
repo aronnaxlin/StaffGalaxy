@@ -3,6 +3,17 @@ import { loadCollaborationDetail, loadPersonCredits, loadPersonDetail } from '..
 import { personUrl, subjectUrl } from '../data/links'
 import { displayPersonName, secondaryPersonName } from '../data/personNames'
 import type { CollaborationDetail, PersonCredit, PersonCreditsResponse, PersonDetail, PersonNameMode } from '../types'
+import {
+  dividerClass,
+  mutedLink,
+  panelShell,
+  panelSoft,
+  sectionLabel,
+  segmentedButtonClass,
+  segmentedGroupClass,
+  smallPillClass,
+  subtleLink,
+} from './ui'
 
 interface NeighborInfo {
   id: string
@@ -68,7 +79,7 @@ function PersonSummary({
 }) {
   if (loading) {
     return (
-      <div className="mb-3 rounded-lg border border-slate-800/70 bg-slate-950/60 px-3 py-2 text-xs text-slate-500">
+      <div className={`${panelSoft} mb-3 px-3 py-2 text-xs text-slate-500`}>
         履历加载中…
       </div>
     )
@@ -79,30 +90,30 @@ function PersonSummary({
   const range = yearRange(detail.stats.firstCreditYear, detail.stats.latestCreditYear)
 
   return (
-    <div className="mb-3 rounded-lg border border-slate-800/70 bg-slate-950/60 p-3 shrink-0">
-      <div className="grid grid-cols-3 gap-2 text-center mb-2">
+    <div className={`${panelSoft} mb-3 shrink-0 p-3`}>
+      <div className="mb-2 grid grid-cols-3 gap-2 text-center">
         <div>
           <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeSubjectCount}</div>
-          <div className="text-[10px] text-slate-600">参与动画</div>
+          <div className="text-[10px] text-slate-500">参与动画</div>
         </div>
         <div>
           <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeCreditCount}</div>
-          <div className="text-[10px] text-slate-600">职位记录</div>
+          <div className="text-[10px] text-slate-500">职位记录</div>
         </div>
         <div>
           <div className="text-sm text-slate-200 tabular-nums">{range ?? '—'}</div>
-          <div className="text-[10px] text-slate-600">年份范围</div>
+          <div className="text-[10px] text-slate-500">年份范围</div>
         </div>
       </div>
 
       {detail.topRoles.length > 0 && (
         <div className="mb-2">
-          <div className="text-[10px] text-slate-500 mb-1">常见职位</div>
+          <div className={`${sectionLabel} mb-1`}>常见职位</div>
           <div className="flex flex-wrap gap-1">
             {detail.topRoles.slice(0, 5).map(role => (
               <span
                 key={`${role.position}-${role.roleTier}`}
-                className="rounded border border-slate-700/60 bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-slate-400"
+                className={smallPillClass()}
                 title={`${role.normalizedRole} / Tier ${role.roleTier}`}
               >
                 {role.position} · {role.creditCount}
@@ -114,7 +125,7 @@ function PersonSummary({
 
       {detail.recentWorks.length > 0 && (
         <div>
-          <div className="text-[10px] text-slate-500 mb-1">最近参与</div>
+          <div className={`${sectionLabel} mb-1`}>最近参与</div>
           <ul className="space-y-1">
             {detail.recentWorks.slice(0, 4).map(work => {
               const display = subjectDisplayName(work, subjectNameMode)
@@ -124,15 +135,13 @@ function PersonSummary({
                     href={subjectUrl(work.subjectId)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-slate-300 hover:text-cyan-300 transition-colors"
+                    className={subtleLink}
                     title={`Bangumi subject #${work.subjectId}`}
                   >
                     {display.primary}
                   </a>
                   {work.year && <span className="ml-1 text-slate-600">{work.year}</span>}
-                  {work.roles && (
-                    <div className="text-slate-600 truncate">{work.roles}</div>
-                  )}
+                  {work.roles && <div className="truncate text-slate-600">{work.roles}</div>}
                 </li>
               )
             })}
@@ -140,7 +149,7 @@ function PersonSummary({
         </div>
       )}
 
-      <div className="mt-2 pt-2 border-t border-slate-800/70 text-[10px] text-slate-700 truncate">
+      <div className={`mt-2 truncate border-t ${dividerClass} pt-2 text-[10px] text-slate-700`}>
         {detail.source.label} · {snapshotLabel(detail)}
       </div>
     </div>
@@ -195,11 +204,11 @@ function PersonCreditsHistory({
   )
 
   return (
-    <div className="mb-3 shrink-0 rounded-lg border border-slate-800/70 bg-slate-950/60">
+    <div className={`${panelSoft} mb-3 shrink-0`}>
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-slate-400 hover:text-cyan-300 transition-colors"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-slate-400 transition-colors hover:text-cyan-300"
       >
         <span>{open ? '收起完整履历' : '展开完整履历'}</span>
         <span className="text-[10px] text-slate-600">
@@ -208,7 +217,7 @@ function PersonCreditsHistory({
       </button>
 
       {open && (
-        <div className="border-t border-slate-800/70 px-3 py-2">
+        <div className={`border-t ${dividerClass} px-3 py-2`}>
           {loading && (
             <div className="text-xs text-slate-500">完整履历加载中…</div>
           )}
@@ -228,7 +237,7 @@ function PersonCreditsHistory({
                           href={subjectUrl(group.subjectId)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-slate-300 hover:text-cyan-300 transition-colors"
+                          className={subtleLink}
                           title={`Bangumi subject #${group.subjectId}`}
                         >
                           {display.primary}
@@ -239,7 +248,7 @@ function PersonCreditsHistory({
                         {group.credits.map(credit => (
                           <span
                             key={`${group.subjectId}-${credit.positionId}-${credit.rawPosition}-${credit.normalizedRole}`}
-                            className="rounded border border-slate-800 bg-slate-900/70 px-1 py-0.5 text-[10px] text-slate-500"
+                            className="rounded-full border border-slate-800 bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-slate-500"
                             title={`${credit.rawPosition} / ${credit.normalizedRole} / Tier ${credit.roleTier}`}
                           >
                             {credit.rawPosition || credit.position}
@@ -280,7 +289,7 @@ function CollabDetail({
 }) {
   if (loading) {
     return (
-      <div className="mt-2 ml-6 pl-3 border-l border-slate-700/50 text-xs text-slate-500 py-1">
+      <div className="ml-6 mt-2 border-l border-slate-700/50 py-1 pl-3 text-xs text-slate-500">
         加载中…
       </div>
     )
@@ -289,8 +298,8 @@ function CollabDetail({
   if (!detail) return null
 
   return (
-    <div className="mt-1.5 ml-6 pl-3 border-l border-cyan-500/30">
-      <div className="flex items-center gap-2 mb-2 text-xs text-slate-400">
+    <div className="ml-6 mt-1.5 border-l border-cyan-500/30 pl-3">
+      <div className="mb-2 flex items-center gap-2 text-xs text-slate-400">
         <span>共 {detail.sharedWorksCount} 部作品</span>
         {detail.firstYear && (
           <span className="text-slate-500">
@@ -300,27 +309,23 @@ function CollabDetail({
         <span className="text-slate-600">
           score: {detail.collaborationScore.toFixed(1)}
         </span>
-        <div className="ml-auto flex rounded border border-slate-700/60 overflow-hidden">
+        <div className={`${segmentedGroupClass} ml-auto`}>
           {(['original', 'cn'] as const).map(mode => (
             <button
               key={mode}
               type="button"
               onClick={() => onSubjectNameModeChange(mode)}
-              className={`px-1.5 py-0.5 text-[10px] transition-colors ${
-                subjectNameMode === mode
-                  ? 'bg-cyan-900/50 text-cyan-200'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
+              className={segmentedButtonClass(subjectNameMode === mode, 'cyan')}
             >
               {mode === 'original' ? '原名' : '中文'}
             </button>
           ))}
         </div>
       </div>
-      <div className="mb-2 text-[10px] text-slate-700 truncate">
+      <div className="mb-2 truncate text-[10px] text-slate-700">
         数据快照：{snapshotLabel(detail)}
       </div>
-      <ul className="space-y-1.5 max-h-52 overflow-y-auto">
+      <ul className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
         {detail.sharedWorks.map(work => {
           const display = subjectDisplayName(work, subjectNameMode)
           return (
@@ -330,7 +335,7 @@ function CollabDetail({
                   href={subjectUrl(work.subjectId)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-slate-300 hover:text-cyan-300 transition-colors"
+                  className={subtleLink}
                   title={`Bangumi subject #${work.subjectId}`}
                 >
                   {display.primary}
@@ -454,40 +459,36 @@ export function NodePanel({
   }, [nodeId, personCredits, personCreditsOpen])
 
   return (
-    <div className="absolute right-4 top-16 w-96 max-h-[calc(100dvh-6rem)] bg-slate-950/95 border border-slate-700/60 rounded-xl shadow-2xl backdrop-blur p-4 z-40 flex flex-col overflow-hidden">
+    <div className={`${panelShell} absolute right-4 top-16 z-40 flex max-h-[calc(100dvh-6rem)] w-96 flex-col overflow-hidden p-4`}>
       {/* Header */}
-      <div className="flex items-start justify-between mb-3 shrink-0">
+      <div className="mb-3 flex shrink-0 items-start justify-between">
         <div className="min-w-0">
           <div className="text-base font-semibold text-slate-100 truncate">{displayName}</div>
           {secondaryName && (
             <div className="mt-0.5 truncate text-[11px] text-slate-600">{secondaryName}</div>
           )}
-          <div className="flex items-center gap-2 mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-slate-400">
               {degree} 位合作者
             </span>
             {weightedDegree !== undefined && (
-              <span className="text-xs text-slate-600">
+              <span className={smallPillClass()}>
                 w{weightedDegree.toFixed(0)}
               </span>
             )}
             {roleLayer && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-400 border border-slate-700/50">
+              <span className={smallPillClass()}>
                 {roleLayer}
               </span>
             )}
           </div>
-          <div className="mt-2 flex w-fit overflow-hidden rounded border border-slate-700/50 text-[10px]">
+          <div className={`${segmentedGroupClass} mt-2 w-fit`}>
             {(['original', 'cn'] as const).map(mode => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => onPersonNameModeChange(mode)}
-                className={`px-1.5 py-0.5 transition-colors ${
-                  personNameMode === mode
-                    ? 'bg-cyan-900/50 text-cyan-200'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
+                className={segmentedButtonClass(personNameMode === mode, 'cyan')}
               >
                 {mode === 'original' ? '原名' : '简中'}
               </button>
@@ -496,7 +497,7 @@ export function NodePanel({
         </div>
         <button
           onClick={onClose}
-          className="text-slate-500 hover:text-slate-300 text-lg leading-none ml-2 shrink-0 transition-colors"
+          className="ml-2 shrink-0 text-lg leading-none text-slate-500 transition-colors hover:text-pink-300"
         >
           ×
         </button>
@@ -518,15 +519,15 @@ export function NodePanel({
       />
 
       {/* Neighbor list header */}
-      <div className="flex items-center justify-between text-xs text-slate-500 mb-2 shrink-0">
-        <span>按合作次数排序</span>
+      <div className="mb-2 flex shrink-0 items-center justify-between text-xs text-slate-500">
+        <span className={sectionLabel}>按合作次数排序</span>
         {neighborTotal > neighbors.length && (
           <span>前 {neighbors.length} / {neighborTotal}</span>
         )}
       </div>
 
       {/* Neighbor list */}
-      <ul className="space-y-0.5 overflow-y-auto flex-1 min-h-0">
+      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
         {neighbors.map(({ id, attrs, sharedWorksCount, collaborationScore, firstYear, lastYear }) => {
           const isExpanded = expandedId === id
           const neighborName = attrs.name as string
@@ -542,7 +543,7 @@ export function NodePanel({
           return (
             <li key={id}>
               <button
-                className="w-full text-left rounded px-2 py-1.5 hover:bg-slate-800/40 transition-colors group"
+                className="group w-full rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-900/70"
                 onClick={() => onNodeClick(id)}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -560,15 +561,15 @@ export function NodePanel({
                         {firstYear}{lastYear && lastYear !== firstYear ? `–${String(lastYear).slice(-2)}` : ''}
                       </span>
                     )}
-                    <span className="text-xs text-slate-500 tabular-nums min-w-[1.5rem] text-right">
-                      {sharedWorksCount}
-                    </span>
+                      <span className="min-w-[1.5rem] rounded-full border border-slate-700/40 bg-slate-950/50 px-1.5 py-0.5 text-right text-[10px] tabular-nums text-slate-400">
+                        {sharedWorksCount}
+                      </span>
                   </div>
                 </div>
                 {collaborationScore > 0 && (
                   <div className="flex items-center gap-1 mt-0.5">
                     <div
-                      className="h-0.5 rounded bg-cyan-600/60"
+                      className="h-0.5 rounded-full bg-cyan-500/70"
                       style={{
                         width: `${Math.min(100, (collaborationScore / 10) * 8)}%`,
                         maxWidth: '6rem',
@@ -581,9 +582,9 @@ export function NodePanel({
 
               {/* Expand toggle */}
               <button
-                className={`w-full text-left text-[11px] px-2 py-0.5 transition-colors ${
+                className={`w-full rounded px-2 py-0.5 text-left text-[11px] transition-colors ${
                   isExpanded
-                    ? 'text-cyan-400 bg-slate-800/30'
+                    ? 'bg-cyan-950/30 text-cyan-300'
                     : 'text-slate-600 hover:text-slate-400'
                 }`}
                 onClick={(e) => {
@@ -596,7 +597,7 @@ export function NodePanel({
 
               <button
                 type="button"
-                className="w-full text-left text-[11px] px-2 py-0.5 text-slate-600 hover:text-amber-300 transition-colors"
+                className="w-full rounded px-2 py-0.5 text-left text-[11px] text-slate-600 transition-colors hover:bg-pink-950/20 hover:text-pink-300"
                 onClick={(e) => {
                   e.stopPropagation()
                   onCompare(nodeId, id)
@@ -622,12 +623,12 @@ export function NodePanel({
       </ul>
 
       {/* Footer */}
-      <div className="mt-3 pt-3 border-t border-slate-800 shrink-0">
+      <div className={`mt-3 shrink-0 border-t ${dividerClass} pt-3`}>
         <a
           href={personUrl(nodeId)}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-slate-500 hover:text-cyan-400 transition-colors"
+          className={mutedLink}
         >
           Bangumi 页面 →
         </a>
