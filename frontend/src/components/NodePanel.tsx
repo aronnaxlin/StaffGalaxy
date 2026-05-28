@@ -517,16 +517,16 @@ export function NodePanel({
   }, [nodeId, personCredits, personCreditsOpen])
 
   return (
-    <div className={`${panelShell} absolute right-4 top-16 z-40 flex max-h-[calc(100dvh-6rem)] w-96 flex-col overflow-hidden p-4`}>
+    <div className={`${panelShell} absolute right-4 top-16 z-40 flex max-h-[calc(100dvh-6rem)] w-96 flex-col overflow-hidden p-3`}>
       {/* Header */}
-      <div className="mb-3 flex shrink-0 items-start justify-between">
+      <div className="mb-3 flex shrink-0 items-start justify-between rounded-lg border border-[#f09199]/20 bg-[linear-gradient(135deg,rgba(240,145,153,0.16),rgba(54,156,248,0.08))] p-3">
         <div className="min-w-0">
-          <div className="text-base font-semibold text-slate-100 truncate">{displayName}</div>
+          <div className="text-base font-semibold text-white truncate">{displayName}</div>
           {secondaryName && (
-            <div className="mt-0.5 truncate text-[11px] text-slate-600">{secondaryName}</div>
+            <div className="mt-0.5 truncate text-[11px] text-slate-400">{secondaryName}</div>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-slate-300">
               {degree} 位合作者
             </span>
             {weightedDegree !== undefined && (
@@ -555,7 +555,7 @@ export function NodePanel({
         </div>
         <button
           onClick={onClose}
-          className="ml-2 shrink-0 text-lg leading-none text-slate-500 transition-colors hover:text-pink-300"
+          className="ml-2 shrink-0 text-lg leading-none text-slate-400 transition-colors hover:text-[#f4a8bc]"
         >
           ×
         </button>
@@ -659,7 +659,7 @@ export function NodePanel({
       {/* Neighbor list */}
       <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
         {filteredNeighbors.length === 0 && (
-          <li className="rounded-lg border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-xs text-slate-500">
+          <li className="rounded-lg border border-[#f09199]/20 bg-black/20 px-3 py-2 text-xs text-slate-400">
             当前筛选下没有可显示的一跳合作者。
           </li>
         )}
@@ -681,12 +681,12 @@ export function NodePanel({
           return (
             <li key={id}>
               <button
-                className="group w-full rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-900/70"
+                className="group w-full rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-[#f09199]/15 hover:bg-[#f09199]/10"
                 onClick={() => onNodeClick(id)}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-slate-300 transition-colors group-hover:text-cyan-300">
+                    <span className="block truncate text-sm text-slate-200 transition-colors group-hover:text-[#d9ecff]">
                       {neighborDisplayName}
                     </span>
                     {neighborSecondaryName && (
@@ -699,7 +699,7 @@ export function NodePanel({
                         {firstYear}{lastYear && lastYear !== firstYear ? `–${String(lastYear).slice(-2)}` : ''}
                       </span>
                     )}
-                      <span className="min-w-[1.5rem] rounded-full border border-slate-700/40 bg-slate-950/50 px-1.5 py-0.5 text-right text-[10px] tabular-nums text-slate-400">
+                      <span className="min-w-[1.5rem] rounded-full border border-[#6baae8]/25 bg-[#0f3e75]/35 px-1.5 py-0.5 text-right text-[10px] tabular-nums text-[#b9d8f4]">
                         {sharedWorksCount}
                       </span>
                   </div>
@@ -707,7 +707,7 @@ export function NodePanel({
                 {collaborationScore > 0 && (
                   <div className="flex items-center gap-1 mt-0.5">
                     <div
-                      className="h-0.5 rounded-full bg-cyan-500/70"
+                      className="h-0.5 rounded-full bg-[#6baae8]/80"
                       style={{
                         width: `${Math.min(100, (collaborationScore / 10) * 8)}%`,
                         maxWidth: '6rem',
@@ -722,8 +722,8 @@ export function NodePanel({
               <button
                 className={`w-full rounded px-2 py-0.5 text-left text-[11px] transition-colors ${
                   isExpanded
-                    ? 'bg-cyan-950/30 text-cyan-300'
-                    : 'text-slate-600 hover:text-slate-400'
+                    ? 'bg-[#0f3e75]/45 text-[#d9ecff]'
+                    : 'text-slate-500 hover:bg-[#6baae8]/10 hover:text-[#b9d8f4]'
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -737,8 +737,8 @@ export function NodePanel({
                 type="button"
                 className={`w-full rounded px-2 py-0.5 text-left text-[11px] transition-colors ${
                   isGraphExpanded
-                    ? 'bg-cyan-950/30 text-cyan-300'
-                    : 'text-slate-600 hover:bg-cyan-950/20 hover:text-cyan-300'
+                    ? 'bg-[#0f3e75]/45 text-[#d9ecff]'
+                    : 'text-slate-500 hover:bg-[#6baae8]/10 hover:text-[#b9d8f4]'
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -756,7 +756,7 @@ export function NodePanel({
 
               <button
                 type="button"
-                className="w-full rounded px-2 py-0.5 text-left text-[11px] text-slate-600 transition-colors hover:bg-pink-950/20 hover:text-pink-300"
+                className="w-full rounded px-2 py-0.5 text-left text-[11px] text-slate-500 transition-colors hover:bg-[#f09199]/10 hover:text-[#f4a8bc]"
                 onClick={(e) => {
                   e.stopPropagation()
                   onCompare(nodeId, id)

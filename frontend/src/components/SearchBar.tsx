@@ -120,7 +120,7 @@ export function SearchBar({
               <span className="block truncate text-[10px] text-slate-600">{selectedSecondary}</span>
             )}
           </span>
-          <span className="rounded-full border border-slate-700/50 bg-slate-900/70 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+          <span className="rounded-full border border-[#f09199]/25 bg-black/25 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-400">
             #{selectedEntry.id}
           </span>
           <a
@@ -168,7 +168,7 @@ export function SearchBar({
         onFocus={() => { if (results.length > 0) setOpen(true) }}
         onKeyDown={handleKeyDown}
         placeholder="搜索人名或Bangumi ID…"
-        className={`${panelShell} w-full px-3 py-2 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-500 focus:border-cyan-500/50`}
+        className={`${panelShell} w-full px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-500 focus:border-[#f09199]/60`}
         autoComplete="off"
       />
       {loading && query.length >= 1 && (
@@ -178,7 +178,7 @@ export function SearchBar({
       )}
       {open && results.length > 0 && (
         <ul className={`${panelShell} absolute top-full z-50 mt-1 max-h-80 w-full overflow-y-auto py-1`}>
-          <li className={`${sectionLabel} px-3 py-1`}>Search results</li>
+          <li className={`${sectionLabel} px-3 py-1`}>人物搜索</li>
           {results.map((entry, idx) => {
             const name = displayPersonName(entry, personNameMode)
             const secondary = secondaryPersonName(entry, personNameMode)
@@ -187,8 +187,8 @@ export function SearchBar({
               <button
                 className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
                   idx === selectedIdx
-                    ? 'bg-cyan-950/35 text-cyan-100'
-                    : 'text-slate-200 hover:bg-slate-900/70'
+                    ? 'bg-[#9b2838]/35 text-rose-50'
+                    : 'text-slate-200 hover:bg-[#f09199]/10'
                 }`}
                 onClick={() => commit(entry)}
                 onMouseEnter={() => setSelectedIdx(idx)}
@@ -199,7 +199,7 @@ export function SearchBar({
                     <span className="block truncate text-[10px] text-slate-600">{secondary}</span>
                   )}
                 </span>
-                <span className="shrink-0 rounded-full border border-slate-700/50 bg-slate-950/60 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+                <span className="shrink-0 rounded-full border border-[#6baae8]/25 bg-[#0f3e75]/35 px-1.5 py-0.5 text-[10px] tabular-nums text-[#b9d8f4]">
                   d{entry.degree}
                 </span>
                 <span className="shrink-0 text-[10px] tabular-nums text-slate-700">

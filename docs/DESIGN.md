@@ -1,6 +1,6 @@
 # Staff Galaxy Design System
 
-Last updated: 2026-05-27
+Last updated: 2026-05-28
 
 ## Reference Sources
 
@@ -10,6 +10,13 @@ Last updated: 2026-05-27
 - `https://bgm.tv/person/1040`
 
 Observed traits to borrow, not copy: dark top shell, rounded category pills, compact metadata, soft pink/cyan accents, dense link lists, small poster/card grids, and profile pages that pair a visual identity area with readable long-form facts.
+
+2026-05-28 spot check:
+
+- The live HTML declares `data-theme-color="pink"` and loads `/css/dist/bangumi.min.css?r742`.
+- Repeated palette anchors in the stylesheet include Bangumi pink `#f09199`, soft pink `#f4a8bc`, dark shell colors `#2d2e2f` / `#303132`, blue links `#02a3fb` / `#0187c5` / `#369cf8`, off-white panels `#fafafa` / `#f9f9f5`, and muted metadata greys `#999`, `#666`, `#444`.
+- Homepage structure emphasizes compact category navigation, search-as-database control, dense media/person lists, small metadata, and rounded login/side panels.
+- Person pages keep factual profile content close to the main identity block, with link-heavy evidence lists and restrained badges.
 
 ## Product Tone
 
@@ -28,14 +35,14 @@ Use Tailwind classes where possible. When hard-coded colors are needed, keep the
 |---|---:|---|
 | `galaxy.bg` | `#0a0a0f` | Main graph background |
 | `galaxy.bgAlt` | `#080810` | Constellation/path background |
-| `panel.bg` | `rgba(2, 6, 23, 0.92)` | Side panels, overlays |
-| `panel.bgSoft` | `rgba(15, 23, 42, 0.72)` | Nested evidence blocks |
-| `panel.border` | `rgba(51, 65, 85, 0.60)` | Panel borders |
+| `panel.bg` | `rgba(38, 39, 40, 0.92)` | Side panels, overlays; dark adaptation of Bangumi's shell |
+| `panel.bgSoft` | `rgba(61, 61, 63, 0.68)` | Nested evidence blocks |
+| `panel.border` | `rgba(240, 145, 153, 0.30)` | Panel borders, borrowed from Bangumi pink |
 | `text.primary` | `#f1f5f9` | Names and main labels |
 | `text.secondary` | `#cbd5e1` | Body facts |
 | `text.muted` | `#64748b` | Timestamps, IDs, counts |
-| `accent.cyan` | `#22d3ee` | Graph focus, links, strong action |
-| `accent.pink` | `#fb7185` | Bangumi-flavored highlight, warnings used gently |
+| `accent.cyan` | `#6baae8` | Graph focus, links, strong action |
+| `accent.pink` | `#f09199` | Bangumi-flavored highlight, warnings used gently |
 | `accent.gold` | `#fbbf24` | Path endpoints and selected constellation nodes |
 | `accent.violet` | `#c084fc` | Secondary path color, keyboard-selected search row |
 | `state.error` | `#f87171` | Load/query errors |

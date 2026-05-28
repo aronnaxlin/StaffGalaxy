@@ -422,11 +422,12 @@ export default function App() {
 
       <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
         <div className={`${panelShell} flex shrink-0 items-center gap-3 px-3 py-2`}>
+          <div className="h-8 w-1 rounded-full bg-[#f09199]" />
           <div>
-            <div className="whitespace-nowrap text-sm font-semibold tracking-[0.22em] text-slate-200 uppercase">
+            <div className="whitespace-nowrap text-sm font-semibold tracking-[0.22em] text-slate-100 uppercase">
               Staff Galaxy
             </div>
-            <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.16em] text-[#d98d88]">
               Bangumi Archive
             </div>
           </div>
@@ -438,7 +439,7 @@ export default function App() {
           <button
             type="button"
             onClick={openConstellation}
-            className={`${panelShell} shrink-0 whitespace-nowrap px-3 py-2 text-xs text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-cyan-200`}
+            className={`${panelShell} shrink-0 whitespace-nowrap px-3 py-2 text-xs text-slate-300 transition-colors hover:border-[#6baae8]/45 hover:text-[#d9ecff]`}
           >
             关系星图
           </button>
@@ -446,7 +447,7 @@ export default function App() {
         <div className="pointer-events-auto ml-auto">
           <GraphLevelToggle level={level} onChange={handleGraphLevelChange} />
         </div>
-        <div className="hidden rounded-full border border-slate-700/50 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-500 backdrop-blur lg:block">
+        <div className="hidden rounded-full border border-[#f09199]/25 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-400 backdrop-blur lg:block">
           {LEVEL_LABELS[level]}
         </div>
         <div className="pointer-events-auto">

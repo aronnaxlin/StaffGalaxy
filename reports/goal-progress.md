@@ -1,6 +1,6 @@
 # Goal Progress
 
-Last updated: 2026-05-28 18:12 Asia/Shanghai
+Last updated: 2026-05-28 18:20 Asia/Shanghai
 
 ## Current State
 
@@ -11,6 +11,20 @@ Last updated: 2026-05-28 18:12 Asia/Shanghai
 - Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl.
 
 ## Verified This Turn
+
+- Read required project and `karpathy-guidelines` instructions.
+- Refreshed Bangumi visual research in `docs/DESIGN.md`:
+  - Checked the live `bangumi.tv` homepage, `bgm.tv/person/1040`, and the loaded `bangumi.min.css?r742`.
+  - Recorded concrete palette anchors from the current site: `#f09199` pink, `#f4a8bc` soft pink, `#02a3fb` / `#369cf8` blue links, `#2d2e2f` dark shell, off-white panel colors, and muted greys.
+- Reworked shared frontend panel tokens toward the Bangumi-inspired panel style:
+  - `panelShell`, `panelSoft`, segmented controls, pills, dividers, section labels, and link classes now use Bangumi pink/blue accents on a dark database-shell surface.
+  - Search dropdown now uses a Chinese `人物搜索` section label, pink focus/selection treatment, and blue degree pills.
+  - The top control rail and person side panel now include warmer Bangumi-style accent strips, panel headers, row hovers, and action states.
+- Browser smoke checked production preview:
+  - `/` rendered the new top controls and search dropdown for `宫崎骏`.
+  - Selecting `宮崎駿` opened `/person/1040` with the refreshed side panel, filters, collaborator rows, and Bangumi footer link.
+  - Console check returned no warnings or errors.
+- Confirmed frontend production build passes: `npm run build`.
 
 - Read required project and `karpathy-guidelines` instructions.
 - Added sparse priority labels to the Cosmos graph overlay:
