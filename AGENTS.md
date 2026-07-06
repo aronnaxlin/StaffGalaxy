@@ -117,8 +117,10 @@ BFS with multi-parent tracking returns all shortest paths between two people. Re
 
 - Vite 8 + React 19 + TypeScript
 - Tailwind CSS 4
-- Cosmos.gl (`@cosmos.gl/graph`) — WebGL graph renderer
-- Graphology — graph data model
+- Cosmos.gl (`@cosmos.gl/graph`) v3 — WebGL graph renderer (upgraded from 2.6.4;
+  see `docs/staff-galaxy/edge-rendering-performance-plan.md` Phase 1)
+- Graphology — graph data model (still used for search/panel lookups; no longer
+  touched in the Cosmos render/LOD/hover hot path)
 - No Sigma.js (removed)
 
 ### Components
@@ -140,16 +142,58 @@ BFS with multi-parent tracking returns all shortest paths between two people. Re
 
 - Hover labels use DOM direct manipulation (not React state) for smooth performance at 21K+ nodes.
 - Cosmos config is a module-level constant, avoiding re-creation on every render.
-- Edge LOD: shared-works threshold varies with zoom level to keep the view readable.
+- Edge LOD: edges are sorted descending by strength once per graph load, then a
+  zoom-dependent edge *budget* is applied as a zero-copy `Float32Array.subarray()`
+  prefix — no per-zoom-step filter/rebuild (`edgeBudgetForZoom` in
+  `CosmosGalaxyView.tsx`).
+- Hover highlighting is v3 config-driven (`highlightedPointIndices` /
+  `highlightedLinkIndices`), resolved via a precomputed `pointToLinkIndices`
+  incidence map — O(degree), not O(edges). cosmos.gl's own
+  `getConnectedLinkIndices(pointIndices)` requires BOTH endpoints of a link to be
+  in the given set ("edges within a selection"); it returns nothing useful for a
+  single hovered point, which is why this project has its own incidence map
+  instead.
+- cosmos.gl v3 color buffers (`setPointColors`/`setLinkColors`) are RGBA
+  normalized to `[0, 1]` — NOT the `0-255` RGB range v2 used. Config-level array
+  colors (`linkDefaultColor`, etc.) also changed to `0-1` for RGB (alpha was
+  already `0-1` in both versions).
+- `setConfig()` in v3 resets the entire config to defaults before applying —
+  always use `setConfigPartial()` for incremental updates.
+- `selectPointByIndex()`/`unselectPoints()` were removed in v3; selection ring
+  is driven by `focusedPointIndex` alone.
 - Pixel ratio capped at 2 for performance on retina displays.
 - `pixelRatio: Math.min(window.devicePixelRatio \|\| 1, 2)`
+- Vite alias for `gl-bench` (a cosmos.gl v3 transitive dep) forces resolution to
+  its ESM build — its `browser` field points to a UMD bundle with no
+  `export default`, which fails Vite/rolldown's production build otherwise. See
+  `vite.config.ts`.
 
 ### Performance characteristics
 
-- Initial bundle: ~636 KB (Cosmos.gl is the largest dependency)
-- 21K nodes, 518K edges in global view
-- Zoom-dependent edge filtering keeps visible edges manageable
+- 21,383 nodes, 529,310 edges in the global backbone as of the
+  `dump-2026-06-30` snapshot (`min_shared` floor lowered from 12 to 2 unlocked
+  372,661 of them for the client — up from 3,901 at the old floor — see
+  `docs/staff-galaxy/edge-rendering-performance-plan.md` Phase 1)
+- Zoom-dependent edge budget (prefix slice of the strength-sorted arrays) keeps
+  visible edges manageable without discarding data
 - No full-graph force layout at startup
+- cosmos.gl v3's luma.gl (WebGL2) port is heavier than the old regl-based v2:
+  the lazy Cosmos chunk grew from ~362 KB (~106 KB gzip) to ~655 KB (~151 KB
+  gzip)
+- Measured against the real `dump-2026-06-30` snapshot, production build
+  (`npm run build && npm run preview`), global view with 21,383 nodes / 60,000
+  of 372,661 edges shown (default zoomed-out budget tier): Cosmos device-ready
+  ~3.06s after navigation (~3.0s of that is `/api/graph/global/edges` fetch +
+  JSON.parse + graphology construction — a 55MB JSON payload for 372,661
+  edges; Cosmos's own `setPointPositions`/`setLinks`/`render()` calls and
+  device init add only ~50ms on top). This JSON-transport cost is exactly what
+  Phase 2 (binary transport, dropping graphology from the render path) is
+  meant to eliminate.
+- **Dev-server (`npm run dev`) load times are not representative** — React 19
+  StrictMode double-invokes mount effects in development, which was observed
+  to roughly double the apparent time-to-ready (~8.6s in dev vs. ~3.06s in a
+  production preview, same data). Always measure against a production build,
+  matching this project's existing convention in `reports/graph-performance.md`.
 
 ## Commands
 
@@ -217,6 +261,27 @@ reports/
 ```
 
 Note: reports may be stale. Trust the code and database over report numbers.
+
+## Design Docs Precedence
+
+`docs/staff-galaxy/` holds design and research docs. They are not all current
+to the same date — when they conflict, newer supersedes older:
+
+- **`docs/staff-galaxy/edge-rendering-performance-plan.md` is the current
+  authoritative plan for graph rendering/performance work** (nebula edge
+  rendering, cosmos.gl version, node/edge transport format, layout
+  algorithm, global/l0/l1 view structure). It is a proposal, not yet
+  implemented — check `git log`/the code to see how much has landed.
+- `docs/staff-galaxy/frontend-rendering-research.md` and
+  `reports/graph-performance.md` describe the *pre-rewrite* architecture
+  (Cosmos.gl 2.6.4, JSON transport, three-tier global/l0/l1 levels,
+  spiral layout). Once the plan above lands, both are stale on any point
+  where they conflict with it (renderer version, level count, transport
+  format, layout method) — do not use them to justify keeping the old
+  three-tier level system or the JSON graph endpoints.
+- If you are implementing part of the plan, update these older docs (or
+  mark the superseded sections) as you go, rather than leaving
+  contradictory docs for the next agent to untangle.
 
 ## Collaboration Rules
 

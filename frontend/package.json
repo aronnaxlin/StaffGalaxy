@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@cosmos.gl/graph": "^2.6.4",
+    "@cosmos.gl/graph": "^3.1.0",
     "@tailwindcss/vite": "4.3.0",
     "graphology": "0.26.0",
     "graphology-types": "0.24.7",

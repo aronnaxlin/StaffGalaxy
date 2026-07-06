@@ -1,5 +1,15 @@
 # Staff Galaxy Frontend Rendering
 
+> **Status note (2026-07-06):** Phase 1 of
+> `docs/staff-galaxy/edge-rendering-performance-plan.md` has landed: cosmos.gl
+> is now v3 (not 2.6.4, see below), edge LOD is a zero-copy strength-sorted
+> `subarray()` budget (not a per-zoom threshold rebuild), hover highlighting is
+> v3 config-driven via a custom `pointToLinkIndices` incidence map, and color
+> buffers are normalized `0-1` (not `0-255`). The sections below are otherwise
+> unchanged and still describe the coordinate system, bundle strategy, and
+> what was removed pre-v3 accurately. Phases 2/3 (binary transport, offline
+> layout, single merged graph) have not landed — global/l0/l1 still exist.
+
 ## Current Decision
 
 **Cosmos.gl is the sole renderer.** Sigma.js was evaluated and removed.

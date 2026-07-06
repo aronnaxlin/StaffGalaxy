@@ -2,389 +2,426 @@
 
 ## Snapshot
 
-- Archive zip: `dump-2026-05-19.210434Z.zip`
-- Created at: `2026-05-19T21:04:35Z`
-- Zip size: `404,069,971` bytes
+- Archive zip: `dump-2026-06-30.210443Z.zip`
+- Created at: `2026-06-30T21:04:44Z`
+- Zip size: `411,934,282` bytes
 
 ## Base Counts
 
 | Metric | Count |
 | --- | ---: |
-| Anime subjects, `subject.type = 2` | 29,742 |
-| Real individual persons, `person.type = 1` | 83,565 |
-| Total subject-person rows | 1,987,926 |
-| Anime credits involving real individual people | 859,791 |
-| Real people with anime credits | 42,317 |
-| Anime subjects with real person credits | 19,617 |
-| Anime cast rows involving real individual people | 152,390 |
+| Anime subjects, `subject.type = 2` | 30,381 |
+| Real individual persons, `person.type = 1` | 84,560 |
+| Total subject-person rows | 2,034,455 |
+| Anime credits involving real individual people | 879,970 |
+| Real people with anime credits | 43,260 |
+| Anime subjects with real person credits | 20,194 |
+| Anime cast rows involving real individual people | 155,099 |
 
 ### Subject Counts By Type
 
 | Type | Count |
 | ---: | ---: |
-| 1 | 397,723 |
-| 2 | 29,742 |
-| 3 | 97,656 |
-| 4 | 87,036 |
-| 6 | 25,348 |
+| 1 | 404,906 |
+| 2 | 30,381 |
+| 3 | 98,481 |
+| 4 | 89,193 |
+| 6 | 25,702 |
 
 ### Person Counts By Type
 
 | Type | Count |
 | ---: | ---: |
 | 0 | 1 |
-| 1 | 83,565 |
-| 2 | 7,788 |
-| 3 | 2,225 |
+| 1 | 84,560 |
+| 2 | 7,849 |
+| 3 | 2,240 |
 
 ## Top Raw Position IDs
 
 | Position ID | CN | EN | Credits |
 | --- | --- | --- | --- |
-| 20 | 原画 | Key Animation | 225,236 |
-| 15 | 作画监督 | Animation Direction | 85,918 |
-| 21 | 第二原画 | 2nd Key Animation | 49,433 |
-| 4 | 分镜 | Storyboard | 46,712 |
-| 5 | 演出 | Episode Direction | 46,249 |
-| 51 | 补间动画 | In-Between Animation | 27,223 |
-| 3 | 脚本 | Script/Screenplay | 25,300 |
-| 54 | 制片人 | Producer | 18,704 |
-| 2 | 导演 | Director/Direction | 16,380 |
-| 35 | 企画 | Planning | 14,637 |
-| 8 | 人物设定 | Character Design | 13,840 |
-| 42 | 製作 | Production | 12,755 |
-| 6 | 音乐 | Music | 11,081 |
-| 14 | 总作画监督 | Chief Animation Director | 10,861 |
-| 1 | 原作 | Original Creator/Original Work | 9,870 |
-| 11 | 美术监督 | Art Direction | 9,847 |
-| 28 | 剪辑 | Editing | 9,368 |
-| 33 | 主题歌演出 | Theme Song Performance | 9,313 |
-| 25 | 背景美术 | Background Art | 8,785 |
-| 17 | 摄影监督 | Director of Photography | 8,577 |
-| 44 | 音响监督 | Sound Director | 8,469 |
-| 82 | 摄影 | Photography | 8,101 |
-| 56 | 制作进行 | Assistant Production Manager | 7,987 |
-| 13 | 色彩设计 | Color Design | 7,637 |
-| 90 | 作画监督助理 | Assistant Animation Direction | 7,158 |
-| 22 | 动画检查 | Animation Check | 6,825 |
-| 10 | 系列构成 | Series Composition | 6,164 |
-| 73 | OP・ED 分镜 | OP ED | 5,959 |
-| 46 | 音效 | Sound Effects | 5,824 |
-| 31 | 主题歌作曲 | Theme Song Composition | 5,708 |
-| 71 | 美术设计 | Art Design | 5,573 |
-| 32 | 主题歌作词 | Theme Song Lyrics | 5,503 |
-| 26 | 色彩指定 | Color Setting | 5,491 |
-| 30 | 主题歌编曲 | Theme Song Arrangement | 5,028 |
-| 52 | 执行制片人 | Executive Producer | 4,699 |
-| 87 | 动画制片人 | Animation Producer | 4,477 |
-| 19 | 道具设计 | Prop Design | 4,087 |
-| 47 | 特效 | Special Effects | 3,559 |
-| 7 | 人物原案 | Original Character Design | 3,555 |
-| 76 | 制作协力 | Work Assistance | 3,430 |
+| 20 | 原画 | Key Animation | 229,268 |
+| 15 | 作画监督 | Animation Direction | 87,523 |
+| 21 | 第二原画 | 2nd Key Animation | 51,104 |
+| 4 | 分镜 | Storyboard | 47,557 |
+| 5 | 演出 | Episode Direction | 46,897 |
+| 51 | 补间动画 | In-Between Animation | 28,057 |
+| 3 | 脚本 | Script/Screenplay | 25,638 |
+| 54 | 制片人 | Producer | 19,144 |
+| 2 | 导演 | Director/Direction | 16,925 |
+| 35 | 企画 | Planning | 14,859 |
+| 8 | 人物设定 | Character Design | 13,940 |
+| 42 | 製作 | Production | 13,032 |
+| 6 | 音乐 | Music | 11,266 |
+| 14 | 总作画监督 | Chief Animation Director | 10,999 |
+| 11 | 美术监督 | Art Direction | 9,985 |
+| 1 | 原作 | Original Creator/Original Work | 9,978 |
+| 28 | 剪辑 | Editing | 9,577 |
+| 33 | 主题歌演出 | Theme Song Performance | 9,433 |
+| 25 | 背景美术 | Background Art | 9,231 |
+| 17 | 摄影监督 | Director of Photography | 8,695 |
+| 82 | 摄影 | Photography | 8,652 |
+| 44 | 音响监督 | Sound Director | 8,563 |
+| 56 | 制作进行 | Assistant Production Manager | 8,413 |
+| 13 | 色彩设计 | Color Design | 7,750 |
+| 90 | 作画监督助理 | Assistant Animation Direction | 7,528 |
+| 22 | 动画检查 | Animation Check | 6,981 |
+| 10 | 系列构成 | Series Composition | 6,228 |
+| 73 | OP・ED 分镜 | OP ED | 6,020 |
+| 46 | 音效 | Sound Effects | 5,984 |
+| 31 | 主题歌作曲 | Theme Song Composition | 5,860 |
+| 71 | 美术设计 | Art Design | 5,838 |
+| 26 | 色彩指定 | Color Setting | 5,656 |
+| 32 | 主题歌作词 | Theme Song Lyrics | 5,635 |
+| 30 | 主题歌编曲 | Theme Song Arrangement | 5,162 |
+| 52 | 执行制片人 | Executive Producer | 4,856 |
+| 87 | 动画制片人 | Animation Producer | 4,563 |
+| 19 | 道具设计 | Prop Design | 4,168 |
+| 47 | 特效 | Special Effects | 3,598 |
+| 7 | 人物原案 | Original Character Design | 3,593 |
+| 76 | 制作协力 | Work Assistance | 3,560 |
 
 ## Top Cast People By Anime Character Links
 
 | Person | Cast Rows |
 | --- | --- |
-| 櫻井孝宏 | 548 |
-| 杉田智和 | 533 |
-| 釘宮理恵 | 497 |
-| 福山潤 | 485 |
-| 花澤香菜 | 484 |
-| 日笠陽子 | 483 |
-| 子安武人 | 468 |
-| 沢城みゆき | 466 |
-| 諏訪部順一 | 465 |
-| 小野大輔 | 441 |
-| 小西克幸 | 440 |
-| 中村悠一 | 432 |
-| 梶裕貴 | 432 |
-| 浪川大輔 | 414 |
-| 石田彰 | 414 |
-| 早見沙織 | 393 |
-| 森川智之 | 383 |
-| 能登麻美子 | 381 |
-| 佐倉綾音 | 376 |
-| 三木眞一郎 | 370 |
+| 櫻井孝宏 | 551 |
+| 杉田智和 | 548 |
+| 釘宮理恵 | 499 |
+| 日笠陽子 | 491 |
+| 福山潤 | 489 |
+| 花澤香菜 | 488 |
+| 子安武人 | 472 |
+| 沢城みゆき | 468 |
+| 諏訪部順一 | 467 |
+| 小野大輔 | 450 |
+| 小西克幸 | 446 |
+| 梶裕貴 | 435 |
+| 中村悠一 | 434 |
+| 浪川大輔 | 422 |
+| 石田彰 | 418 |
+| 早見沙織 | 398 |
+| 森川智之 | 386 |
+| 能登麻美子 | 386 |
+| 佐倉綾音 | 381 |
+| 三木眞一郎 | 377 |
 
 ## Normalized Role Counts
 
 | Role | Tier | Credits |
 | --- | --- | --- |
-| key_animation | C | 225,236 |
-| animation_director | B | 85,918 |
-| second_key_animation | C | 49,433 |
-| storyboard | B | 46,712 |
-| episode_director | B | 46,249 |
-| in_between_animation | D | 27,223 |
-| script | B | 25,300 |
-| producer | A | 18,704 |
-| director | A | 16,380 |
-| planning | A | 14,637 |
-| character_design | A | 13,840 |
-| anime_staff_42 | D | 12,755 |
-| music | A | 11,081 |
-| chief_animation_director | A | 10,861 |
-| original_creator | A | 9,870 |
-| art_director | B | 9,847 |
-| editing | B | 9,368 |
-| theme_song_performance | C | 9,313 |
-| background_art | C | 8,785 |
-| photography_director | B | 8,577 |
-| sound_director | B | 8,469 |
-| photography | C | 8,101 |
-| production_assistant | C | 7,987 |
-| color_design | B | 7,637 |
-| assistant_animation_director | C | 7,158 |
-| animation_check | C | 6,825 |
-| series_composition | A | 6,164 |
-| op_ed_storyboard | B | 5,959 |
-| sound_effects | C | 5,824 |
-| theme_song_composition | C | 5,708 |
-| art_design | B | 5,573 |
-| theme_song_lyrics | C | 5,503 |
-| color_setting | C | 5,491 |
-| theme_song_arrangement | C | 5,028 |
-| executive_producer | A | 4,699 |
-| animation_producer | A | 4,477 |
-| prop_design | C | 4,087 |
-| special_effects | C | 3,559 |
-| original_character_design | A | 3,555 |
-| work_assistance | D | 3,430 |
-| supervising_producer | A | 3,386 |
-| setting | C | 3,385 |
-| production_manager | C | 3,294 |
-| assistance | D | 3,287 |
-| chief_producer | A | 3,130 |
-| finishing | C | 2,997 |
-| mechanical_design | C | 2,851 |
-| recording | C | 2,816 |
-| assistant_episode_director | C | 2,410 |
-| layout | C | 2,126 |
-| music_producer | B | 2,066 |
-| animation_work | C | 2,062 |
-| 3dcg | C | 1,982 |
-| inserted_song_performance | C | 1,920 |
-| sound | C | 1,882 |
-| op_ed_direction | B | 1,870 |
-| assistant_director | A | 1,853 |
-| chief_director | A | 1,838 |
-| cg_director | B | 1,785 |
-| illustration | C | 1,773 |
-| supervisor | B | 1,586 |
-| special_thanks | D | 1,569 |
-| sub_character_design | B | 1,520 |
-| setting_production | C | 1,499 |
-| assistant_producer | B | 1,464 |
-| adr_director | B | 1,381 |
-| music_work | C | 1,292 |
-| original_plan | A | 1,206 |
-| publicity | D | 1,195 |
-| main_animator | B | 1,175 |
-| mechanical_animation_director | B | 1,063 |
-| color_check | C | 963 |
-| co_director | A | 894 |
-| planning_cooperation | D | 834 |
-| finishing_check | C | 805 |
-| recording_assistant | D | 795 |
-| action_animation_director | B | 764 |
-| production | D | 754 |
-| associate_producer | B | 718 |
-| 3dcg_director | B | 710 |
-| assistant_producer_legacy | D | 686 |
-| music_director | B | 678 |
-| production_assistant_assistance | D | 590 |
-| sound_production_coordinator | C | 565 |
-| art | C | 503 |
-| 2d_works | C | 498 |
-| chief_production_supervisor | A | 468 |
-| series_production_director | A | 465 |
-| inserted_song_composition | C | 460 |
-| inserted_song_lyrics | C | 415 |
-| special_effects_animation_director | B | 415 |
-| assistant_chief_animation_director | C | 395 |
-| inserted_song_arrangement | C | 383 |
-| planning_producer | A | 348 |
-| co_producer | B | 332 |
-| background_setting | C | 306 |
-| digital_paint | D | 302 |
-| costume_design | C | 301 |
-| setting_cooperation | C | 288 |
-| assistant_photography_director | B | 259 |
-| music_selection | C | 256 |
-| recording_studio | D | 236 |
-| chief_episode_direction | B | 218 |
-| monster_design | C | 190 |
-| storyboard_cooperation | C | 187 |
-| art_board | C | 172 |
-| assistant_art_director | B | 170 |
-| visual_effects | C | 164 |
-| live_storyboard_direction | C | 154 |
-| guest_character_design | C | 148 |
-| literary_producer | C | 145 |
-| script_cooperation | C | 141 |
-| assistant_color_designer | C | 140 |
-| concept_design | C | 133 |
-| associate_producer_assistant | D | 124 |
-| production_assistant_general | D | 111 |
-| line_producer | B | 110 |
-| cg_producer | B | 109 |
-| eyecatch_art | C | 105 |
-| action_director | B | 104 |
-| image_board | C | 102 |
-| layout_supervision | C | 101 |
-| character_animation_director | B | 95 |
-| publicity_producer | B | 88 |
-| 3d_animator | C | 81 |
-| animation_supervisor | B | 79 |
-| technical_director | B | 78 |
-| layout_animation_director | C | 73 |
-| production_coordination | D | 70 |
-| bank_storyboard_direction | C | 66 |
-| prop_animation_director | C | 61 |
-| concept_art | C | 60 |
-| color_script | C | 58 |
-| casting_director | C | 57 |
-| visual_director | B | 51 |
-| music_assistant | D | 48 |
-| assistant_production_desk | C | 45 |
-| creative_supervisor_director | B | 45 |
-| title_design | C | 43 |
-| sound_producer | B | 39 |
-| cg_production_coordinator | C | 37 |
-| creative_producer | A | 36 |
-| sound_mixing | C | 36 |
-| online_editing | C | 33 |
-| offline_editing | C | 31 |
-| series_composition_cooperation | C | 28 |
-| storyboard_clean_up | D | 28 |
-| scene_design | C | 25 |
-| visual_concept | C | 23 |
-| 3d_works | C | 20 |
-| tokusatsu_director | B | 20 |
-| tokusatsu_effects | C | 18 |
-| mechanical_design_concept | C | 17 |
-| meta_story_character_design | C | 17 |
-| assistant_design_manager | C | 16 |
-| meta_story_storyboard_direction | C | 13 |
-| art_production_coordinator | C | 11 |
-| associate_series_composition | B | 10 |
+| key_animation | D | 229,268 |
+| animation_director | C | 87,523 |
+| second_key_animation | D | 51,104 |
+| storyboard | B | 47,557 |
+| episode_director | B | 46,897 |
+| in_between_animation | E | 28,057 |
+| script | B | 25,638 |
+| producer | B | 19,144 |
+| director | S | 16,925 |
+| planning | B | 14,859 |
+| character_design | A | 13,940 |
+| anime_staff_42 | F | 13,032 |
+| music | B | 11,266 |
+| chief_animation_director | A | 10,999 |
+| art_director | C | 9,985 |
+| original_creator | A | 9,978 |
+| editing | C | 9,577 |
+| theme_song_performance | D | 9,433 |
+| background_art | D | 9,231 |
+| photography_director | C | 8,695 |
+| photography | D | 8,652 |
+| sound_director | C | 8,563 |
+| production_assistant | E | 8,413 |
+| color_design | C | 7,750 |
+| assistant_animation_director | D | 7,528 |
+| animation_check | D | 6,981 |
+| series_composition | A | 6,228 |
+| op_ed_storyboard | C | 6,020 |
+| sound_effects | D | 5,984 |
+| theme_song_composition | D | 5,860 |
+| art_design | C | 5,838 |
+| color_setting | D | 5,656 |
+| theme_song_lyrics | D | 5,635 |
+| theme_song_arrangement | D | 5,162 |
+| executive_producer | B | 4,856 |
+| animation_producer | A | 4,563 |
+| prop_design | D | 4,168 |
+| special_effects | D | 3,598 |
+| original_character_design | B | 3,593 |
+| work_assistance | F | 3,560 |
+| supervising_producer | B | 3,521 |
+| production_manager | D | 3,434 |
+| setting | D | 3,393 |
+| assistance | F | 3,377 |
+| finishing | D | 3,327 |
+| chief_producer | B | 3,186 |
+| recording | D | 2,912 |
+| mechanical_design | D | 2,869 |
+| assistant_episode_director | D | 2,487 |
+| layout | D | 2,209 |
+| animation_work | D | 2,108 |
+| music_producer | C | 2,099 |
+| 3dcg | D | 2,053 |
+| op_ed_direction | C | 2,019 |
+| inserted_song_performance | D | 1,979 |
+| sound | D | 1,925 |
+| assistant_director | A | 1,877 |
+| chief_director | S | 1,872 |
+| cg_director | C | 1,808 |
+| illustration | D | 1,806 |
+| special_thanks | F | 1,637 |
+| sub_character_design | C | 1,607 |
+| supervisor | C | 1,605 |
+| setting_production | D | 1,602 |
+| assistant_producer | C | 1,492 |
+| adr_director | C | 1,428 |
+| music_work | D | 1,333 |
+| publicity | E | 1,226 |
+| original_plan | B | 1,221 |
+| main_animator | C | 1,205 |
+| mechanical_animation_director | C | 1,091 |
+| color_check | D | 1,034 |
+| co_director | A | 933 |
+| planning_cooperation | E | 921 |
+| finishing_check | D | 902 |
+| recording_assistant | E | 815 |
+| associate_producer | C | 800 |
+| action_animation_director | C | 782 |
+| production | F | 776 |
+| 3dcg_director | C | 743 |
+| music_director | C | 708 |
+| assistant_producer_legacy | E | 699 |
+| art | D | 654 |
+| production_assistant_assistance | E | 620 |
+| sound_production_coordinator | D | 600 |
+| inserted_song_composition | D | 555 |
+| 2d_works | D | 535 |
+| inserted_song_lyrics | D | 489 |
+| inserted_song_arrangement | D | 478 |
+| chief_production_supervisor | B | 475 |
+| series_production_director | B | 461 |
+| special_effects_animation_director | C | 438 |
+| assistant_chief_animation_director | D | 427 |
+| planning_producer | B | 351 |
+| co_producer | C | 335 |
+| costume_design | D | 321 |
+| setting_cooperation | D | 320 |
+| digital_paint | E | 312 |
+| background_setting | D | 307 |
+| assistant_photography_director | C | 295 |
+| music_selection | D | 263 |
+| recording_studio | F | 261 |
+| chief_episode_direction | C | 224 |
+| storyboard_cooperation | D | 221 |
+| monster_design | D | 204 |
+| assistant_art_director | C | 201 |
+| art_board | D | 194 |
+| visual_effects | D | 191 |
+| guest_character_design | D | 159 |
+| live_storyboard_direction | D | 156 |
+| literary_producer | D | 155 |
+| script_cooperation | D | 153 |
+| assistant_color_designer | D | 148 |
+| cg_producer | C | 142 |
+| concept_design | D | 142 |
+| character_animation_director | C | 131 |
+| line_producer | C | 129 |
+| associate_producer_assistant | E | 126 |
+| eyecatch_art | D | 122 |
+| production_assistant_general | E | 114 |
+| action_director | C | 109 |
+| animation_supervisor | C | 107 |
+| image_board | D | 105 |
+| layout_supervision | D | 104 |
+| publicity_producer | C | 96 |
+| 3d_animator | D | 85 |
+| technical_director | C | 80 |
+| layout_animation_director | D | 78 |
+| production_coordination | E | 72 |
+| prop_animation_director | D | 70 |
+| bank_storyboard_direction | D | 67 |
+| color_script | D | 66 |
+| concept_art | D | 66 |
+| music_assistant | E | 65 |
+| visual_director | C | 63 |
+| casting_director | D | 57 |
+| assistant_production_desk | D | 55 |
+| title_design | D | 54 |
+| cg_production_coordinator | D | 50 |
+| sound_producer | C | 47 |
+| creative_supervisor_director | C | 46 |
+| sound_mixing | D | 45 |
+| online_editing | D | 42 |
+| offline_editing | D | 38 |
+| creative_producer | B | 36 |
+| storyboard_clean_up | E | 35 |
+| visual_concept | D | 35 |
+| series_composition_cooperation | D | 30 |
+| scene_design | D | 29 |
+| 3d_works | D | 23 |
+| tokusatsu_director | C | 22 |
+| assistant_design_manager | D | 20 |
+| mechanical_design_concept | D | 18 |
+| tokusatsu_effects | D | 18 |
+| meta_story_character_design | D | 17 |
+| meta_story_storyboard_direction | D | 16 |
+| art_production_coordinator | D | 13 |
+| associate_series_composition | C | 10 |
 | unknown_position_4003 | D | 8 |
 | unknown_position_4002 | D | 6 |
-| post_production_assistant | D | 5 |
-| story_concept | C | 5 |
-| art_producer | B | 4 |
+| post_production_assistant | E | 5 |
+| story_concept | D | 5 |
+| art_producer | C | 4 |
 | unknown_position_4004 | D | 2 |
-| dialogue_editing | D | 1 |
-| scenario_coordinator | C | 1 |
+| dialogue_editing | E | 1 |
+| scenario_coordinator | D | 1 |
 | unknown_position_1015 | D | 1 |
 | unknown_position_1028 | D | 1 |
 | unknown_position_4014 | D | 1 |
 
 Unmapped anime-person credits: `0`.
-Tier D load-more anime-person credits: `54,062`.
+Tier D load-more anime-person credits: `401,653`.
 
 ### Top Tier D Positions
 
 | Position ID | CN | EN | Credits |
 | --- | --- | --- | --- |
-| 51 | 补间动画 | In-Between Animation | 27,223 |
-| 42 | 製作 | Production | 12,755 |
-| 76 | 制作协力 | Work Assistance | 3,430 |
-| 81 | 协力 | Assistance | 3,287 |
-| 66 | 特别鸣谢 | Special Thanks | 1,569 |
-| 38 | 宣传 | Publicity | 1,195 |
-| 127 | 企画协力 | Planning Cooperation | 834 |
-| 40 | 录音助理 | Recording Assistant | 795 |
-| 63 | 制作 | Production | 754 |
-| 23 | 助理制片人 | Assistant Producer | 686 |
-| 83 | 制作进行协力 | Assistant Production Manager Assistance | 590 |
-| 27 | 数码绘图 | Digital Paint | 302 |
-| 152 | 录音工作室 | Recording Studio | 236 |
-| 24 | 制作助理 | Associate Producer | 124 |
-| 62 | 制作助理 | Production Assistant | 111 |
-| 64 | 制作协调 | Production Coordination | 70 |
-| 55 | 音乐助理 | Music Assistant | 48 |
-| 105 | 分镜抄写 |  | 28 |
-| 4,003 |  |  | 8 |
-| 4,002 |  |  | 6 |
-| 61 | 后期制片协调 | Post-Production Assistant | 5 |
-| 4,004 |  |  | 2 |
-| 60 | 台词编辑 | Dialogue Editing | 1 |
-| 1,015 |  |  | 1 |
-| 1,028 |  |  | 1 |
-| 4,014 |  |  | 1 |
+| 20 | 原画 | Key Animation | 229,268 |
+| 21 | 第二原画 | 2nd Key Animation | 51,104 |
+| 33 | 主题歌演出 | Theme Song Performance | 9,433 |
+| 25 | 背景美术 | Background Art | 9,231 |
+| 82 | 摄影 | Photography | 8,652 |
+| 90 | 作画监督助理 | Assistant Animation Direction | 7,528 |
+| 22 | 动画检查 | Animation Check | 6,981 |
+| 46 | 音效 | Sound Effects | 5,984 |
+| 31 | 主题歌作曲 | Theme Song Composition | 5,860 |
+| 26 | 色彩指定 | Color Setting | 5,656 |
+| 32 | 主题歌作词 | Theme Song Lyrics | 5,635 |
+| 30 | 主题歌编曲 | Theme Song Arrangement | 5,162 |
+| 19 | 道具设计 | Prop Design | 4,168 |
+| 47 | 特效 | Special Effects | 3,598 |
+| 37 | 制作管理 | Production Manager | 3,434 |
+| 43 | 设定 | Setting | 3,393 |
+| 93 | 上色 |  | 3,327 |
+| 39 | 录音 | Recording | 2,912 |
+| 16 | 机械设定 | Mechanical Design | 2,869 |
+| 91 | 演出助理 | Assistant Episode Direction | 2,487 |
+| 9 | 构图 | Layout | 2,209 |
+| 67 | 动画制作 | Animation Work | 2,108 |
+| 75 | 3DCG | 3DCG | 2,053 |
+| 34 | 插入歌演出 | Inserted Song Performance | 1,979 |
+| 45 | 音响 | Sound | 1,925 |
+| 139 | 插画 | Illustration | 1,806 |
+| 84 | 设定制作 | Design Manager | 1,602 |
+| 65 | 音乐制作 | Music Work | 1,333 |
+| 95 | 色彩检查 |  | 1,034 |
+| 94 | 上色检查 |  | 902 |
 
 ## Candidate Graph Scale
 
-### Tier A
+### Tier S
 
 | Metric | Count |
 | --- | ---: |
-| Subjects | 18,206 |
-| Persons | 16,800 |
-| Credits | 127,892 |
-| Estimated pair contributions | 661,890 |
-| Max people on one subject | 60 |
+| Subjects | 15,759 |
+| Persons | 3,578 |
+| Credits | 18,797 |
+| Estimated pair contributions | 5,853 |
+| Max people on one subject | 26 |
 | Max people subject | `116370` 日本动画（人）博览会 |
-| Unique edges | 422,359 |
-| Nodes with edges | 16,392 |
-| Edges with `sharedWorksCount >= 2` | 107,158 |
-| Degree median | 22.0 |
-| Degree p95 | 193 |
-| Degree max | 2,138 |
+| Unique edges | 4,850 |
+| Nodes with edges | 2,095 |
+| Edges with `sharedWorksCount >= 2` | 571 |
+| Degree median | 2.0 |
+| Degree p95 | 15 |
+| Degree max | 56 |
 
 | Strategy | Visible Nodes | Visible Edges |
 | --- | ---: | ---: |
-| Top 5 strongest neighbors per node | 16,392 | 66,267 |
-| Top 10 strongest neighbors per node | 16,392 | 116,349 |
-| Top 20 strongest neighbors per node | 16,392 | 188,745 |
+| Top 5 strongest neighbors per node | 2,095 | 3,639 |
+| Top 10 strongest neighbors per node | 2,095 | 4,429 |
+| Top 20 strongest neighbors per node | 2,095 | 4,789 |
 
-### Tier A+B
+### Tier S+A
 
 | Metric | Count |
 | --- | ---: |
-| Subjects | 18,805 |
-| Persons | 29,230 |
-| Credits | 406,507 |
-| Estimated pair contributions | 7,123,880 |
-| Max people on one subject | 306 |
-| Max people subject | `899` 名侦探柯南 |
-| Unique edges | 4,807,598 |
-| Nodes with edges | 28,939 |
-| Edges with `sharedWorksCount >= 2` | 1,169,391 |
-| Degree median | 121.0 |
-| Degree p95 | 1,358 |
-| Degree max | 9,382 |
+| Subjects | 17,821 |
+| Persons | 11,897 |
+| Credits | 67,315 |
+| Estimated pair contributions | 135,201 |
+| Max people on one subject | 49 |
+| Max people subject | `116370` 日本动画（人）博览会 |
+| Unique edges | 95,374 |
+| Nodes with edges | 11,275 |
+| Edges with `sharedWorksCount >= 2` | 20,585 |
+| Degree median | 9.0 |
+| Degree p95 | 60 |
+| Degree max | 400 |
 
 | Strategy | Visible Nodes | Visible Edges |
 | --- | ---: | ---: |
-| Top 5 strongest neighbors per node | 28,939 | 132,280 |
-| Top 10 strongest neighbors per node | 28,939 | 253,258 |
-| Top 20 strongest neighbors per node | 28,939 | 473,184 |
+| Top 5 strongest neighbors per node | 11,275 | 38,014 |
+| Top 10 strongest neighbors per node | 11,275 | 57,216 |
+| Top 20 strongest neighbors per node | 11,275 | 75,877 |
 
-### Tier A+B+C
+### Tier S+A+B
 
 | Metric | Count |
 | --- | ---: |
-| Subjects | 19,207 |
-| Persons | 41,656 |
-| Credits | 805,729 |
-| Estimated pair contributions | 36,560,924 |
-| Max people on one subject | 689 |
+| Subjects | 19,202 |
+| Persons | 21,383 |
+| Credits | 250,376 |
+| Estimated pair contributions | 2,208,651 |
+| Max people on one subject | 185 |
+| Max people subject | `18692` 哆啦A梦 |
+| Unique edges | 1,455,985 |
+| Nodes with edges | 21,009 |
+| Edges with `sharedWorksCount >= 2` | 372,661 |
+| Degree median | 46.0 |
+| Degree p95 | 630 |
+| Degree max | 3,368 |
+
+| Strategy | Visible Nodes | Visible Edges |
+| --- | ---: | ---: |
+| Top 5 strongest neighbors per node | 21,009 | 90,898 |
+| Top 10 strongest neighbors per node | 21,009 | 167,488 |
+| Top 20 strongest neighbors per node | 21,009 | 299,150 |
+
+### Tier S+A+B+C
+
+| Metric | Count |
+| --- | ---: |
+| Subjects | 19,375 |
+| Persons | 29,868 |
+| Credits | 414,193 |
+| Estimated pair contributions | 7,323,031 |
+| Max people on one subject | 308 |
 | Max people subject | `899` 名侦探柯南 |
+| Unique edges | 4,939,401 |
+| Nodes with edges | 29,549 |
+| Edges with `sharedWorksCount >= 2` | 1,201,071 |
+| Degree median | 123.0 |
+| Degree p95 | 1,371 |
+| Degree max | 9,504 |
 
-Unique edge aggregation was skipped because the estimated pair contribution count exceeded the configured materialization limit.
+| Strategy | Visible Nodes | Visible Edges |
+| --- | ---: | ---: |
+| Top 5 strongest neighbors per node | 29,549 | 134,925 |
+| Top 10 strongest neighbors per node | 29,549 | 258,263 |
+| Top 20 strongest neighbors per node | 29,549 | 482,665 |
 
-### Tier A+B+C+D
+### Tier S+A+B+C+D
 
 | Metric | Count |
 | --- | ---: |
-| Subjects | 19,617 |
-| Persons | 42,317 |
-| Credits | 859,791 |
-| Estimated pair contributions | 41,472,689 |
-| Max people on one subject | 726 |
+| Subjects | 19,777 |
+| Persons | 42,335 |
+| Credits | 815,846 |
+| Estimated pair contributions | 36,958,966 |
+| Max people on one subject | 686 |
 | Max people subject | `899` 名侦探柯南 |
 
 Unique edge aggregation was skipped because the estimated pair contribution count exceeded the configured materialization limit.
@@ -400,10 +437,10 @@ sharedWorksCount >= 2 OR top 10 strongest neighbors per endpoint
 
 | Metric | Count |
 | --- | ---: |
-| Visible nodes | 16,392 |
-| Visible edges | 217,116 |
-| Edges with `sharedWorksCount >= 2` | 107,158 |
-| Top-10-only edges | 109,958 |
+| Visible nodes | 21,009 |
+| Visible edges | 529,310 |
+| Edges with `sharedWorksCount >= 2` | 372,661 |
+| Top-10-only edges | 156,649 |
 
 ## Built Graph Nodes
 
@@ -411,9 +448,9 @@ The database also materializes Tier A graph nodes. Coordinates currently use a d
 
 | Metric | Count |
 | --- | ---: |
-| Graph nodes | 16,800 |
-| Nodes with visible edges | 16,392 |
-| Max visible degree | 1,193 |
+| Graph nodes | 21,383 |
+| Nodes with visible edges | 21,009 |
+| Max visible degree | 1,743 |
 | Max node size | 12.0 |
 | Layout method | `deterministic_spiral_v1` |
 

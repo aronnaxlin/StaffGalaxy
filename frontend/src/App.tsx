@@ -461,7 +461,6 @@ export default function App() {
             level={level}
             selectedNode={selectedNode}
             personNameMode={personNameMode}
-            minSharedFloor={level === 'person' ? personGalaxyMinShared : undefined}
             onBackToGlobal={() => loadGraphLevelView('global')}
           />
         </Suspense>

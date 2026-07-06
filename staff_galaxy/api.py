@@ -23,7 +23,11 @@ from .search_index import (
 DEFAULT_DB_PATH = Path("data/processed/staff_galaxy.duckdb")
 
 LEVELS: dict[str, dict[str, int]] = {
-    "global": {"min_degree": 0, "min_shared": 12},
+    # min_shared was 12, which let through only ~3.8K of the 518K-edge backbone.
+    # The frontend now holds the full sorted edge set client-side and applies a
+    # zoom-dependent edge *budget* (prefix slice) instead of relying on this floor
+    # for density control — lowered so far more of the backbone is available to it.
+    "global": {"min_degree": 0, "min_shared": 2},
     "l0": {"min_degree": 150, "min_shared": 1},
     "l1": {"min_degree": 50, "min_shared": 3},
 }
