@@ -45,6 +45,11 @@ export interface PersonNameLike {
   nameTw?: string
 }
 
+export interface SubjectNameLike {
+  subjectName: string
+  subjectNameCn: string
+}
+
 export interface DataSnapshot {
   snapshotId: string
   archiveName: string

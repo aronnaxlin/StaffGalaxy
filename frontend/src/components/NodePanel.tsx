@@ -1,7 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { loadCollaborationDetail, loadPersonCredits, loadPersonDetail } from '../data/loader'
 import { personUrl, subjectUrl } from '../data/links'
-import { displayPersonName, secondaryPersonName } from '../data/personNames'
+import {
+  displayPersonName,
+  displaySubjectName,
+  secondaryPersonName,
+  secondarySubjectName,
+} from '../data/personNames'
 import type { CollaborationDetail, PersonCredit, PersonCreditsResponse, PersonDetail, PersonNameMode } from '../types'
 import {
   dividerClass,
@@ -34,7 +39,6 @@ interface NodePanelProps {
   onNeighborLimitChange: (limit: number) => void
   onNeighborMinSharedChange: (minShared: number) => void
   personNameMode: PersonNameMode
-  onPersonNameModeChange: (mode: PersonNameMode) => void
   onClose: () => void
   onNodeClick: (id: string) => void
   onCompare: (personAId: string, personBId: string) => void
@@ -43,11 +47,9 @@ interface NodePanelProps {
   onToggleNeighborExpansion: (neighborId: string) => void
 }
 
-type SubjectNameMode = 'original' | 'cn'
 type NeighborRoleFilter = 'all' | 'sab' | 'cd' | 'ef'
 type NeighborTimeFilter = 'all' | 'recent10' | 'since2010' | 'since2000'
 
-const SUBJECT_NAME_MODE_KEY = 'staffGalaxy.subjectNameMode'
 const NEIGHBOR_LIMIT_OPTIONS = [60, 120, 240] as const
 const NEIGHBOR_MIN_SHARED_OPTIONS = [1, 3, 5, 10] as const
 const ROLE_FILTERS: { value: NeighborRoleFilter; label: string }[] = [
@@ -62,21 +64,6 @@ const TIME_FILTERS: { value: NeighborTimeFilter; label: string }[] = [
   { value: 'since2010', label: '2010+' },
   { value: 'since2000', label: '2000+' },
 ]
-
-function getInitialSubjectNameMode(): SubjectNameMode {
-  const stored = window.localStorage.getItem(SUBJECT_NAME_MODE_KEY)
-  return stored === 'cn' ? 'cn' : 'original'
-}
-
-function subjectDisplayName(
-  work: { subjectName: string; subjectNameCn: string },
-  mode: SubjectNameMode,
-) {
-  if (mode === 'cn' && work.subjectNameCn) {
-    return { primary: work.subjectNameCn, secondary: work.subjectName }
-  }
-  return { primary: work.subjectName, secondary: work.subjectNameCn }
-}
 
 function yearRange(first: number | null, latest: number | null) {
   if (!first && !latest) return null
@@ -111,87 +98,101 @@ function snapshotLabel(detail: PersonDetail | PersonCreditsResponse | Collaborat
 function PersonSummary({
   detail,
   loading,
-  subjectNameMode,
+  open,
+  nameMode,
+  onToggle,
 }: {
   detail: PersonDetail | null
   loading: boolean
-  subjectNameMode: SubjectNameMode
+  open: boolean
+  nameMode: PersonNameMode
+  onToggle: () => void
 }) {
-  if (loading) {
-    return (
-      <div className={`${panelSoft} mb-3 px-3 py-2 text-xs text-slate-500`}>
-        履历加载中…
-      </div>
-    )
-  }
-
-  if (!detail) return null
-
-  const range = yearRange(detail.stats.firstCreditYear, detail.stats.latestCreditYear)
+  const range = detail
+    ? yearRange(detail.stats.firstCreditYear, detail.stats.latestCreditYear)
+    : null
 
   return (
-    <div className={`${panelSoft} mb-3 shrink-0 p-3`}>
-      <div className="mb-2 grid grid-cols-3 gap-2 text-center">
-        <div>
-          <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeSubjectCount}</div>
-          <div className="text-[10px] text-slate-500">参与动画</div>
-        </div>
-        <div>
-          <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeCreditCount}</div>
-          <div className="text-[10px] text-slate-500">职位记录</div>
-        </div>
-        <div>
-          <div className="text-sm text-slate-200 tabular-nums">{range ?? '—'}</div>
-          <div className="text-[10px] text-slate-500">年份范围</div>
-        </div>
-      </div>
+    <div className={`${panelSoft} mb-3 shrink-0`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-slate-400 transition-colors hover:text-cyan-300"
+      >
+        <span>人物资料</span>
+        <span className="text-[10px] text-slate-600">
+          {loading ? '加载中…' : open ? '收起' : '展开'}
+        </span>
+      </button>
 
-      {detail.topRoles.length > 0 && (
-        <div className="mb-2">
-          <div className={`${sectionLabel} mb-1`}>常见职位</div>
-          <div className="flex flex-wrap gap-1">
-            {detail.topRoles.slice(0, 5).map(role => (
-              <span
-                key={`${role.position}-${role.roleTier}`}
-                className={smallPillClass()}
-                title={`${role.normalizedRole} / Tier ${role.roleTier}`}
-              >
-                {role.position} · {role.creditCount}
-              </span>
-            ))}
-          </div>
+      {open && (
+        <div className={`border-t ${dividerClass} p-3`}>
+          {loading && <div className="text-xs text-slate-500">人物资料加载中…</div>}
+
+          {!loading && detail && (
+            <>
+              <div className="mb-2 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeSubjectCount}</div>
+                  <div className="text-[10px] text-slate-500">参与动画</div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-200 tabular-nums">{detail.stats.animeCreditCount}</div>
+                  <div className="text-[10px] text-slate-500">职位记录</div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-200 tabular-nums">{range ?? '—'}</div>
+                  <div className="text-[10px] text-slate-500">年份范围</div>
+                </div>
+              </div>
+
+              {detail.topRoles.length > 0 && (
+                <div className="mb-2">
+                  <div className={`${sectionLabel} mb-1`}>常见职位</div>
+                  <div className="flex flex-wrap gap-1">
+                    {detail.topRoles.slice(0, 5).map(role => (
+                      <span
+                        key={`${role.position}-${role.roleTier}`}
+                        className={smallPillClass()}
+                        title={`${role.normalizedRole} / Tier ${role.roleTier}`}
+                      >
+                        {role.position} · {role.creditCount}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detail.recentWorks.length > 0 && (
+                <div>
+                  <div className={`${sectionLabel} mb-1`}>最近参与</div>
+                  <ul className="space-y-1">
+                    {detail.recentWorks.slice(0, 4).map(work => (
+                      <li key={work.subjectId} className="text-[11px] leading-snug">
+                        <a
+                          href={subjectUrl(work.subjectId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={subtleLink}
+                          title={`Bangumi subject #${work.subjectId}`}
+                        >
+                          {displaySubjectName(work, nameMode)}
+                        </a>
+                        {work.year && <span className="ml-1 text-slate-600">{work.year}</span>}
+                        {work.roles && <div className="truncate text-slate-600">{work.roles}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className={`mt-2 truncate border-t ${dividerClass} pt-2 text-[10px] text-slate-700`}>
+                {detail.source.label} · {snapshotLabel(detail)}
+              </div>
+            </>
+          )}
         </div>
       )}
-
-      {detail.recentWorks.length > 0 && (
-        <div>
-          <div className={`${sectionLabel} mb-1`}>最近参与</div>
-          <ul className="space-y-1">
-            {detail.recentWorks.slice(0, 4).map(work => {
-              const display = subjectDisplayName(work, subjectNameMode)
-              return (
-                <li key={work.subjectId} className="text-[11px] leading-snug">
-                  <a
-                    href={subjectUrl(work.subjectId)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={subtleLink}
-                    title={`Bangumi subject #${work.subjectId}`}
-                  >
-                    {display.primary}
-                  </a>
-                  {work.year && <span className="ml-1 text-slate-600">{work.year}</span>}
-                  {work.roles && <div className="truncate text-slate-600">{work.roles}</div>}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      <div className={`mt-2 truncate border-t ${dividerClass} pt-2 text-[10px] text-slate-700`}>
-        {detail.source.label} · {snapshotLabel(detail)}
-      </div>
     </div>
   )
 }
@@ -228,14 +229,14 @@ function PersonCreditsHistory({
   loading,
   open,
   total,
-  subjectNameMode,
+  nameMode,
   onToggle,
 }: {
   credits: PersonCreditsResponse | null
   loading: boolean
   open: boolean
   total: number | null
-  subjectNameMode: SubjectNameMode
+  nameMode: PersonNameMode
   onToggle: () => void
 }) {
   const groups = useMemo(
@@ -269,7 +270,7 @@ function PersonCreditsHistory({
               </div>
               <ul className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
                 {groups.map(group => {
-                  const display = subjectDisplayName(group, subjectNameMode)
+                  const name = displaySubjectName(group, nameMode)
                   return (
                     <li key={group.subjectId} className="text-[11px] leading-relaxed">
                       <div>
@@ -280,7 +281,7 @@ function PersonCreditsHistory({
                           className={subtleLink}
                           title={`Bangumi subject #${group.subjectId}`}
                         >
-                          {display.primary}
+                          {name}
                         </a>
                         {group.year && <span className="ml-1 text-slate-600">{group.year}</span>}
                       </div>
@@ -317,15 +318,13 @@ function CollabDetail({
   personB,
   detail,
   loading,
-  subjectNameMode,
-  onSubjectNameModeChange,
+  nameMode,
 }: {
   personA: string
   personB: string
   detail: CollaborationDetail | null
   loading: boolean
-  subjectNameMode: SubjectNameMode
-  onSubjectNameModeChange: (mode: SubjectNameMode) => void
+  nameMode: PersonNameMode
 }) {
   if (loading) {
     return (
@@ -349,25 +348,14 @@ function CollabDetail({
         <span className="text-slate-600">
           score: {detail.collaborationScore.toFixed(1)}
         </span>
-        <div className={`${segmentedGroupClass} ml-auto`}>
-          {(['original', 'cn'] as const).map(mode => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => onSubjectNameModeChange(mode)}
-              className={segmentedButtonClass(subjectNameMode === mode, 'cyan')}
-            >
-              {mode === 'original' ? '原名' : '中文'}
-            </button>
-          ))}
-        </div>
       </div>
       <div className="mb-2 truncate text-[10px] text-slate-700">
         数据快照：{snapshotLabel(detail)}
       </div>
       <ul className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
         {detail.sharedWorks.map(work => {
-          const display = subjectDisplayName(work, subjectNameMode)
+          const primary = displaySubjectName(work, nameMode)
+          const secondary = secondarySubjectName(work, nameMode)
           return (
             <li key={work.subjectId} className="text-xs leading-relaxed">
               <div className="font-medium">
@@ -378,10 +366,10 @@ function CollabDetail({
                   className={subtleLink}
                   title={`Bangumi subject #${work.subjectId}`}
                 >
-                  {display.primary}
+                  {primary}
                 </a>
-                {display.secondary && display.secondary !== display.primary && (
-                  <span className="text-slate-500 ml-1">({display.secondary})</span>
+                {secondary && (
+                  <span className="text-slate-500 ml-1">({secondary})</span>
                 )}
                 {work.year && (
                   <span className="text-slate-600 ml-1">{work.year}</span>
@@ -415,7 +403,6 @@ export function NodePanel({
   onNeighborLimitChange,
   onNeighborMinSharedChange,
   personNameMode,
-  onPersonNameModeChange,
   onClose,
   onNodeClick,
   onCompare,
@@ -439,7 +426,7 @@ export function NodePanel({
   const [personCredits, setPersonCredits] = useState<PersonCreditsResponse | null>(null)
   const [personCreditsOpen, setPersonCreditsOpen] = useState(false)
   const [personCreditsLoading, setPersonCreditsLoading] = useState(false)
-  const [subjectNameMode, setSubjectNameMode] = useState<SubjectNameMode>(getInitialSubjectNameMode)
+  const [personSummaryOpen, setPersonSummaryOpen] = useState(false)
   const [neighborRoleFilter, setNeighborRoleFilter] = useState<NeighborRoleFilter>('all')
   const [neighborTimeFilter, setNeighborTimeFilter] = useState<NeighborTimeFilter>('all')
 
@@ -450,10 +437,6 @@ export function NodePanel({
     )),
     [neighborRoleFilter, neighborTimeFilter, neighbors],
   )
-
-  useEffect(() => {
-    window.localStorage.setItem(SUBJECT_NAME_MODE_KEY, subjectNameMode)
-  }, [subjectNameMode])
 
   useEffect(() => {
     let cancelled = false
@@ -476,6 +459,7 @@ export function NodePanel({
     setPersonCredits(null)
     setPersonCreditsOpen(false)
     setPersonCreditsLoading(false)
+    setPersonSummaryOpen(false)
   }, [nodeId])
 
   const handleExpand = useCallback(async (neighborId: string, _neighborName: string) => {
@@ -540,18 +524,6 @@ export function NodePanel({
               </span>
             )}
           </div>
-          <div className={`${segmentedGroupClass} mt-2 w-fit`}>
-            {(['original', 'cn', 'tw'] as const).map(mode => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => onPersonNameModeChange(mode)}
-                className={segmentedButtonClass(personNameMode === mode, 'cyan')}
-              >
-                {mode === 'original' ? '原名' : mode === 'cn' ? '简中' : '繁中'}
-              </button>
-            ))}
-          </div>
         </div>
         <button
           onClick={onClose}
@@ -564,7 +536,9 @@ export function NodePanel({
       <PersonSummary
         detail={personDetail}
         loading={personDetailLoading}
-        subjectNameMode={subjectNameMode}
+        open={personSummaryOpen}
+        nameMode={personNameMode}
+        onToggle={() => setPersonSummaryOpen(value => !value)}
       />
 
       <PersonCreditsHistory
@@ -572,7 +546,7 @@ export function NodePanel({
         loading={personCreditsLoading}
         open={personCreditsOpen}
         total={personDetail?.stats.animeCreditCount ?? personCredits?.total ?? null}
-        subjectNameMode={subjectNameMode}
+        nameMode={personNameMode}
         onToggle={() => void handleToggleCredits()}
       />
 
@@ -772,8 +746,7 @@ export function NodePanel({
                   personB={neighborDisplayName}
                   detail={collabDetail}
                   loading={collabLoading}
-                  subjectNameMode={subjectNameMode}
-                  onSubjectNameModeChange={setSubjectNameMode}
+                  nameMode={personNameMode}
                 />
               )}
             </li>

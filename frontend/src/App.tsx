@@ -4,6 +4,7 @@ import { loadLevel, loadManifest, loadPersonGalaxy, type Level, type LevelData }
 import { buildGraph } from './data/graphBuilder'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
+import { NameModeToggle } from './components/NameModeToggle'
 import { mutedLink, panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
 import type { Manifest, PersonNameMode } from './types'
@@ -31,29 +32,6 @@ const LEVEL_LABELS: Record<Level, string> = {
   global: '全量星系',
   l0: '核心视图',
   l1: '细节视图',
-}
-
-function PersonNameModeToggle({
-  mode,
-  onChange,
-}: {
-  mode: PersonNameMode
-  onChange: (mode: PersonNameMode) => void
-}) {
-  return (
-    <div className={segmentedGroupClass}>
-      {(['original', 'cn', 'tw'] as const).map(option => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          className={segmentedButtonClass(mode === option, 'cyan')}
-        >
-          {option === 'original' ? '原名' : option === 'cn' ? '简中' : '繁中'}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 function GraphLevelToggle({
@@ -520,7 +498,7 @@ export default function App() {
           {LEVEL_LABELS[level]}
         </div>
         <div className="pointer-events-auto">
-          <PersonNameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
+          <NameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
         </div>
       </div>
 
@@ -537,7 +515,6 @@ export default function App() {
           onNeighborLimitChange={setPersonGalaxyLimit}
           onNeighborMinSharedChange={setPersonGalaxyMinShared}
           personNameMode={personNameMode}
-          onPersonNameModeChange={setPersonNameMode}
           onClose={() => setSelectedNode(null)}
           onNodeClick={handleNodeClick}
           onCompare={handleCompareCollaborator}

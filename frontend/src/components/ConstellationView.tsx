@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { loadCollaborationDetail, loadPersonSearchEntry, loadShortestPath } from '../data/loader'
 import { personUrl, subjectUrl } from '../data/links'
-import { displayPersonName } from '../data/personNames'
+import { displayPersonName, displaySubjectName } from '../data/personNames'
 import type { SearchEntry, PathResult, CollaborationDetail, PersonNameMode } from '../types'
+import { NameModeToggle } from './NameModeToggle'
 import { SearchBar } from './SearchBar'
 import {
   mutedLink,
@@ -10,8 +11,6 @@ import {
   panelShell,
   panelSoft,
   sectionLabel,
-  segmentedButtonClass,
-  segmentedGroupClass,
   subtleLink,
 } from './ui'
 
@@ -42,8 +41,8 @@ interface LayoutPoint {
   depth: number
 }
 
-function workTitle(work: CollaborationDetail['sharedWorks'][number]) {
-  return work.subjectNameCn || work.subjectName
+function workTitle(work: CollaborationDetail['sharedWorks'][number], nameMode: PersonNameMode) {
+  return displaySubjectName(work, nameMode)
 }
 
 function snapshotLabel(detail: CollaborationDetail) {
@@ -101,7 +100,7 @@ function PathStepEvidence({
                 className={subtleLink}
                 title={`Bangumi subject #${work.subjectId}`}
               >
-                {workTitle(work)}
+                {workTitle(work, personNameMode)}
               </a>
               {work.year && <span className="ml-1 text-slate-600">{work.year}</span>}
             </div>
@@ -349,19 +348,6 @@ export function ConstellationView({
         <div className={sectionLabel}>
           {isCompareMode ? '双人比较' : '关系星图'}
         </div>
-        <div className={`${segmentedGroupClass} w-fit`}>
-          {(['original', 'cn', 'tw'] as const).map(mode => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => onPersonNameModeChange(mode)}
-              className={segmentedButtonClass(personNameMode === mode, 'cyan')}
-            >
-              {mode === 'original' ? '原名' : mode === 'cn' ? '简中' : '繁中'}
-            </button>
-          ))}
-        </div>
-
         <div className="space-y-2">
           <div>
             <div className={`${sectionLabel} mb-1`}>起点</div>
@@ -438,7 +424,7 @@ export function ConstellationView({
                           className={subtleLink}
                           title={`Bangumi subject #${work.subjectId}`}
                         >
-                          {workTitle(work)}
+                          {workTitle(work, personNameMode)}
                         </a>
                         {work.year && (
                           <span className="ml-1 text-slate-600">{work.year}</span>
@@ -547,6 +533,9 @@ export function ConstellationView({
 
       {/* Right: constellation canvas */}
       <div className="flex-1 relative">
+        <div className="absolute right-4 top-4 z-30">
+          <NameModeToggle mode={personNameMode} onChange={onPersonNameModeChange} />
+        </div>
         <svg
           className="w-full h-full"
           viewBox="0 0 100 100"
