@@ -1,49 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Graph as CosmosGraph } from '@cosmos.gl/graph'
-import Graph from 'graphology'
 import type { Level } from '../data/loader'
-import { displayPersonName } from '../data/personNames'
-import type { PersonNameMode } from '../types'
+import type { CosmosPayload } from '../data/cosmosPayload'
+import { COSMOS_SPACE_SIZE } from '../data/cosmosPayload'
 import { recordRuntimeMetric } from '../data/runtimeMetrics'
 
 interface CosmosGalaxyViewProps {
-  graph: Graph
+  payload: CosmosPayload
   onNodeClick: (nodeId: string) => void
   level: Level
   selectedNode: string | null
-  personNameMode: PersonNameMode
   onBackToGlobal: () => void
-}
-
-interface CosmosPayload {
-  nodeIds: string[]
-  nodeIndexById: Map<string, number>
-  positions: Float32Array
-  pointColors: Float32Array
-  pointSizes: Float32Array
-  // Edges sorted descending by strength (sharedWorksCount, then collaborationScore).
-  // Any zoom-dependent edge budget is therefore a zero-copy prefix `.subarray()` —
-  // no per-frame filter/rebuild, unlike the pre-v3 buildEdgeArrays() approach.
-  sortedLinks: Float32Array
-  sortedLinkColors: Float32Array
-  sortedLinkWidths: Float32Array
-  sortedSharedCounts: Int32Array
-  totalEdgeCount: number
-  // Point index -> indices into the sorted edge arrays incident to that point.
-  // Built once so hover highlighting is O(degree): cosmos.gl's own
-  // getConnectedLinkIndices(pointIndices) requires BOTH endpoints of a link to
-  // be in the given set ("edges within a selection"), which returns nothing
-  // useful for a single hovered point — this is our own incident-edge index.
-  pointToLinkIndices: number[][]
-  nodeLabels: Map<string, string>
-  defaultLabelIndices: number[]
-}
-
-interface EdgeRecord {
-  sourceIndex: number
-  targetIndex: number
-  sharedWorksCount: number
-  collaborationScore: number
 }
 
 interface GraphLabel {
@@ -54,166 +21,15 @@ interface GraphLabel {
 }
 
 const SEARCH_ZOOM_SCALE = 3.8
-const COSMOS_SPACE_SIZE = 8192
-const COSMOS_LAYOUT_SIZE = 4300
-const PERSON_ALL_LABEL_EDGE_LIMIT = 36
-
-// cosmos.gl v3 expects RGBA channels normalized to [0, 1] for setPointColors/
-// setLinkColors (was RGB 0-255 / alpha 0-1 in v2). See migration-notes.md.
-function readRgbNormalized(value: unknown): [number, number, number] {
-  if (typeof value !== 'string') return [212 / 255, 215 / 255, 223 / 255]
-  const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-  if (!match) return [212 / 255, 215 / 255, 223 / 255]
-  return [Number(match[1]) / 255, Number(match[2]) / 255, Number(match[3]) / 255]
-}
 
 // Edge count to keep on screen at the current zoom level, taken as a prefix of the
-// strength-sorted edge arrays. Verified against the real dump-2026-06-30
-// snapshot (renders correctly, no errors at 60,000/372,661 edges) but not
-// rigorously frame-rate-profiled during pan/zoom — retune against
-// reports/graph-performance.md once that's measured.
+// strength-sorted edge arrays. The full 529K-edge set is always resident; these
+// tiers only decide how much of it is on the GPU at once.
 function edgeBudgetForZoom(level: Level, zoom: number, totalEdgeCount: number): number {
   if (level === 'person') return totalEdgeCount
-
-  if (level === 'global') {
-    if (zoom > 0.9) return 6_000
-    if (zoom > 0.65) return 20_000
-    return 60_000
-  }
-
-  if (zoom > 0.8) return 20_000
-  if (zoom > 0.55) return 50_000
-  return 90_000
-}
-
-function buildCosmosPayload(graph: Graph, personNameMode: PersonNameMode, level: Level): CosmosPayload {
-  const nodeIds = graph.nodes()
-  const indexById = new Map(nodeIds.map((id, index) => [id, index]))
-  const positions = new Float32Array(nodeIds.length * 2)
-  const rawPositions = new Float32Array(nodeIds.length * 2)
-  const pointColors = new Float32Array(nodeIds.length * 4)
-  const pointSizes = new Float32Array(nodeIds.length)
-  const nodeLabels = new Map<string, string>()
-
-  let minX = Infinity
-  let maxX = -Infinity
-  let minY = Infinity
-  let maxY = -Infinity
-
-  nodeIds.forEach((nodeId, index) => {
-    const attrs = graph.getNodeAttributes(nodeId)
-    const x = Number(attrs.x ?? 0)
-    const y = Number(attrs.y ?? 0)
-    rawPositions[index * 2] = x
-    rawPositions[index * 2 + 1] = y
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-
-    const [r, g, b] = readRgbNormalized(attrs.color)
-    pointColors[index * 4] = r
-    pointColors[index * 4 + 1] = g
-    pointColors[index * 4 + 2] = b
-    pointColors[index * 4 + 3] = 1
-    pointSizes[index] = attrs.isCenter
-      ? 10
-      : Math.max(2.0, Number(attrs.size ?? 2.5) * (graph.order <= 700 ? 1.2 : 1.0))
-
-    const name = (attrs.name as string) ?? (attrs.label as string) ?? nodeId
-    const nameCn = attrs.nameCn as string | undefined
-    const nameTw = attrs.nameTw as string | undefined
-    nodeLabels.set(nodeId, displayPersonName({ name, nameCn, nameTw }, personNameMode))
-  })
-
-  const span = Math.max(maxX - minX, maxY - minY, 1)
-  const centerX = (minX + maxX) / 2
-  const centerY = (minY + maxY) / 2
-
-  nodeIds.forEach((_nodeId, index) => {
-    positions[index * 2] = COSMOS_SPACE_SIZE / 2 + ((rawPositions[index * 2] - centerX) / span) * COSMOS_LAYOUT_SIZE
-    positions[index * 2 + 1] = COSMOS_SPACE_SIZE / 2 + ((rawPositions[index * 2 + 1] - centerY) / span) * COSMOS_LAYOUT_SIZE
-  })
-
-  const edgeRecords: EdgeRecord[] = graph.edges().map(edge => {
-    const [source, target] = graph.extremities(edge)
-    return {
-      sourceIndex: indexById.get(source) ?? 0,
-      targetIndex: indexById.get(target) ?? 0,
-      sharedWorksCount: Number(graph.getEdgeAttribute(edge, 'sharedWorksCount') ?? 0),
-      collaborationScore: Number(graph.getEdgeAttribute(edge, 'collaborationScore') ?? 0),
-    }
-  })
-  // Sort descending by strength so any zoom-dependent edge budget is a prefix slice.
-  edgeRecords.sort((a, b) => (
-    b.sharedWorksCount - a.sharedWorksCount || b.collaborationScore - a.collaborationScore
-  ))
-
-  const totalEdgeCount = edgeRecords.length
-  const sortedLinks = new Float32Array(totalEdgeCount * 2)
-  const sortedLinkColors = new Float32Array(totalEdgeCount * 4)
-  const sortedLinkWidths = new Float32Array(totalEdgeCount)
-  const sortedSharedCounts = new Int32Array(totalEdgeCount)
-
-  edgeRecords.forEach((edge, index) => {
-    sortedLinks[index * 2] = edge.sourceIndex
-    sortedLinks[index * 2 + 1] = edge.targetIndex
-    sortedSharedCounts[index] = edge.sharedWorksCount
-
-    const score = edge.collaborationScore > 0 ? edge.collaborationScore : edge.sharedWorksCount
-    const t = Math.min(1, Math.log10(1 + score) / 2.2)
-
-    const r = 130 + t * 80
-    const g = 148 + t * 65
-    const b = 175 + t * 55
-    const alpha = level === 'person'
-      ? 28 + t * 52
-      : level === 'global'
-        ? 10 + t * 22
-        : 8 + t * 20
-
-    sortedLinkColors[index * 4] = r / 255
-    sortedLinkColors[index * 4 + 1] = g / 255
-    sortedLinkColors[index * 4 + 2] = b / 255
-    sortedLinkColors[index * 4 + 3] = alpha / 255
-
-    sortedLinkWidths[index] = level === 'l1'
-      ? 0.1 + t * 0.3
-      : level === 'person'
-        ? 0.2 + t * 0.55
-        : 0.14 + t * 0.44
-  })
-
-  const pointToLinkIndices: number[][] = nodeIds.map(() => [])
-  edgeRecords.forEach((edge, index) => {
-    pointToLinkIndices[edge.sourceIndex].push(index)
-    pointToLinkIndices[edge.targetIndex].push(index)
-  })
-
-  const centerIndex = nodeIds.findIndex(nodeId => Boolean(graph.getNodeAttribute(nodeId, 'isCenter')))
-  const defaultLabelIndices = level !== 'person'
-    ? []
-    : totalEdgeCount <= PERSON_ALL_LABEL_EDGE_LIMIT
-      ? nodeIds.map((_nodeId, index) => index)
-      : centerIndex >= 0
-        ? [centerIndex]
-        : []
-
-  return {
-    nodeIds,
-    nodeIndexById: indexById,
-    positions,
-    pointColors,
-    pointSizes,
-    sortedLinks,
-    sortedLinkColors,
-    sortedLinkWidths,
-    sortedSharedCounts,
-    totalEdgeCount,
-    pointToLinkIndices,
-    nodeLabels,
-    defaultLabelIndices,
-  }
+  if (zoom > 1.1) return 30_000
+  if (zoom > 0.75) return 80_000
+  return 160_000
 }
 
 const COSMOS_CONFIG = {
@@ -246,12 +62,13 @@ const COSMOS_CONFIG = {
   attribution: '',
 }
 
+const MIN_EDGE_BUDGET = 20_000
+
 export function CosmosGalaxyView({
-  graph,
+  payload,
   onNodeClick,
   level,
   selectedNode,
-  personNameMode,
   onBackToGlobal,
 }: CosmosGalaxyViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -264,18 +81,21 @@ export function CosmosGalaxyView({
   const hoveredNodeRef = useRef<string | null>(null)
   const lastPointerPositionRef = useRef<[number, number] | null>(null)
   const highlightedPointerPositionRef = useRef<[number, number] | null>(null)
+  const minDegreeRef = useRef(0)
+  const edgeBudgetOverrideRef = useRef(0)
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0)
   const [edgeCutoff, setEdgeCutoff] = useState(0)
   const [defaultLabels, setDefaultLabels] = useState<GraphLabel[]>([])
-  const payload = useMemo(() => buildCosmosPayload(graph, personNameMode, level), [graph, level, personNameMode])
+  const [minDegree, setMinDegree] = useState(0)
+  const [edgeBudgetSlider, setEdgeBudgetSlider] = useState(0)
 
   const focusNode = useCallback((nodeId: string, animate = true) => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
     if (!cosmos || !payload) return false
 
-    const index = payload.nodeIds.indexOf(nodeId)
-    if (index < 0) return false
+    const index = payload.nodeIndexById.get(nodeId)
+    if (index === undefined) return false
 
     cosmos.setConfigPartial({ focusedPointIndex: index })
     // Explicit enableSimulation=false: this layout is static/precomputed, and letting
@@ -290,7 +110,9 @@ export function CosmosGalaxyView({
     if (!cosmos || !payload) return
 
     const zoom = cosmos.getZoomLevel()
-    const budget = edgeBudgetForZoom(level, zoom, payload.totalEdgeCount)
+    const budget = edgeBudgetOverrideRef.current > 0
+      ? edgeBudgetOverrideRef.current
+      : edgeBudgetForZoom(level, zoom, payload.totalEdgeCount)
     const n = Math.min(budget, payload.totalEdgeCount)
     if (!force && n === edgeCountRef.current) return
 
@@ -305,6 +127,28 @@ export function CosmosGalaxyView({
     setEdgeCutoff(n > 0 ? payload.sortedSharedCounts[n - 1] : 0)
   }, [level])
 
+  // Base (non-hover) highlight: the min-degree filter dims every point below the
+  // threshold via v3 greyout. Hover replaces this with the neighborhood set;
+  // mouseout restores it.
+  const applyBaseHighlight = useCallback(() => {
+    const cosmos = cosmosRef.current
+    const payload = payloadRef.current
+    if (!cosmos || !payload || level === 'person') return
+
+    if (minDegreeRef.current <= 0) {
+      cosmos.setConfigPartial({ highlightedPointIndices: undefined, highlightedLinkIndices: undefined })
+      cosmos.render()
+      return
+    }
+    const threshold = minDegreeRef.current
+    const indices: number[] = []
+    for (let i = 0; i < payload.degrees.length; i += 1) {
+      if (payload.degrees[i] >= threshold) indices.push(i)
+    }
+    cosmos.setConfigPartial({ highlightedPointIndices: indices, highlightedLinkIndices: undefined })
+    cosmos.render()
+  }, [level])
+
   // Hover highlight is pure GPU-side config (v3 highlightedPointIndices /
   // highlightedLinkIndices) driven by the precomputed pointToLinkIndices
   // incidence map — O(degree), not O(edges). (cosmos.gl's own
@@ -316,7 +160,7 @@ export function CosmosGalaxyView({
     if (!cosmos || !payload || level === 'person') return
 
     if (index === undefined) {
-      cosmos.setConfigPartial({ highlightedPointIndices: undefined, highlightedLinkIndices: undefined })
+      applyBaseHighlight()
       return
     }
 
@@ -331,7 +175,7 @@ export function CosmosGalaxyView({
       highlightedPointIndices: [index, ...neighborIndices],
       highlightedLinkIndices: linkIndices,
     })
-  }, [level])
+  }, [applyBaseHighlight, level])
 
   const updateDefaultLabels = useCallback(() => {
     const cosmos = cosmosRef.current
@@ -515,6 +359,7 @@ export function CosmosGalaxyView({
     cosmos.setPointColors(payload.pointColors)
     cosmos.setPointSizes(payload.pointSizes)
     applyEdgeDensity(true)
+    applyBaseHighlight()
     window.setTimeout(() => {
       cosmos.fitView(0, 0.18, false)
       window.requestAnimationFrame(updateDefaultLabels)
@@ -539,18 +384,15 @@ export function CosmosGalaxyView({
       })
       updateDefaultLabels()
     })
-  }, [applyEdgeDensity, focusNode, level, payload, selectedNode, updateDefaultLabels])
+  }, [applyBaseHighlight, applyEdgeDensity, focusNode, level, payload, selectedNode, updateDefaultLabels])
 
-  const centerNodeName = level === 'person' && selectedNode && graph.hasNode(selectedNode)
-    ? displayPersonName(
-      {
-        name: graph.getNodeAttribute(selectedNode, 'name'),
-        nameCn: graph.getNodeAttribute(selectedNode, 'nameCn'),
-        nameTw: graph.getNodeAttribute(selectedNode, 'nameTw'),
-      },
-      personNameMode,
-    )
+  const centerNodeName = level === 'person' && selectedNode
+    ? payload.nodeLabels.get(selectedNode) ?? null
     : null
+
+  const edgeBudgetDisplay = edgeBudgetOverrideRef.current > 0
+    ? edgeBudgetOverrideRef.current.toLocaleString()
+    : 'auto'
 
   return (
     <div className="relative w-full h-full bg-[#0a0a0f]">
@@ -583,7 +425,59 @@ export function CosmosGalaxyView({
           <span className="text-slate-600">·</span>
           <span>{visibleEdgeCount.toLocaleString()} / {payload.totalEdgeCount.toLocaleString()} edges</span>
         </div>
-        <div className="text-slate-500">
+        {level === 'global' && (
+          <div className="mt-2 space-y-2 border-t border-slate-700/50 pt-2">
+            <label className="block">
+              <span className="flex justify-between gap-4">
+                <span>最小度数</span>
+                <span className="text-slate-300">{minDegree === 0 ? '关闭' : `≥ ${minDegree}`}</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={300}
+                step={5}
+                value={minDegree}
+                onChange={event => {
+                  const value = Number(event.target.value)
+                  setMinDegree(value)
+                  minDegreeRef.current = value
+                  applyBaseHighlight()
+                }}
+                className="mt-1 w-44 accent-cyan-400"
+              />
+            </label>
+            <label className="block">
+              <span className="flex justify-between gap-4">
+                <span>边数预算</span>
+                <span className="text-slate-300">{edgeBudgetSlider === 0 ? 'auto' : edgeBudgetDisplay}</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={edgeBudgetSlider}
+                onChange={event => {
+                  const slider = Number(event.target.value)
+                  setEdgeBudgetSlider(slider)
+                  if (slider === 0) {
+                    edgeBudgetOverrideRef.current = 0
+                  } else {
+                    const total = payloadRef.current?.totalEdgeCount ?? MIN_EDGE_BUDGET
+                    const t = (slider - 1) / 99
+                    edgeBudgetOverrideRef.current = Math.round(
+                      Math.exp(Math.log(MIN_EDGE_BUDGET) + t * (Math.log(total) - Math.log(MIN_EDGE_BUDGET))),
+                    )
+                  }
+                  applyEdgeDensity(true)
+                }}
+                className="mt-1 w-44 accent-cyan-400"
+              />
+            </label>
+          </div>
+        )}
+        <div className="mt-1 text-slate-500">
           min shared works: {edgeCutoff}
         </div>
       </div>

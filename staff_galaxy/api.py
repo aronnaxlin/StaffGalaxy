@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import duckdb
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
+from .graph_buffers import VERSION as BUFFERS_VERSION, build_graph_buffers
 from .search_index import (
     compact_search_text,
     extract_person_name_cn,
@@ -21,16 +23,6 @@ from .search_index import (
 
 
 DEFAULT_DB_PATH = Path("data/processed/staff_galaxy.duckdb")
-
-LEVELS: dict[str, dict[str, int]] = {
-    # min_shared was 12, which let through only ~3.8K of the 518K-edge backbone.
-    # The frontend now holds the full sorted edge set client-side and applies a
-    # zoom-dependent edge *budget* (prefix slice) instead of relying on this floor
-    # for density control — lowered so far more of the backbone is available to it.
-    "global": {"min_degree": 0, "min_shared": 2},
-    "l0": {"min_degree": 150, "min_shared": 1},
-    "l1": {"min_degree": 50, "min_shared": 3},
-}
 
 
 def get_db_path() -> Path:
@@ -122,117 +114,118 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+# Meta JSON compresses ~10×; buffers ~2.5×. Both are snapshot-immutable, so the
+# per-request gzip CPU cost is paid once per client per snapshot.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+# In-memory buffers cache, keyed by (db path, snapshot, layout). A new Archive
+# snapshot or layout rebuild changes the key, so stale payloads are never served.
+_graph_buffers_cache: dict[tuple[Any, ...], Any] = {}
+
+
+def _graph_geometry_row(conn: duckdb.DuckDBPyConnection) -> tuple[Any, ...]:
+    return conn.execute(
+        """
+        SELECT
+          COUNT(*),
+          COALESCE(MAX(layout_method), 'unknown'),
+          -- Position checksum: changes when a layout migration rewrites x/y
+          -- even if counts and layout_method stay the same.
+          COALESCE(ROUND(SUM(x * x + y * y), 2), 0.0)
+        FROM graph_nodes
+        """
+    ).fetchone()
+
+
+def _graph_cache_key(conn: duckdb.DuckDBPyConnection) -> tuple[Any, ...]:
+    snapshot = _latest_data_snapshot(conn) or {}
+    row = _graph_geometry_row(conn)
+    edge_count = conn.execute("SELECT COUNT(*) FROM visible_person_edges").fetchone()[0]
+    return (
+        str(get_db_path()),
+        snapshot.get("archiveName"),
+        snapshot.get("archiveCreatedAt"),
+        row[1],
+        int(row[0]),
+        int(edge_count),
+        float(row[2]),
+        BUFFERS_VERSION,
+    )
+
+
+def _graph_buffers(conn: duckdb.DuckDBPyConnection) -> Any:
+    key = _graph_cache_key(conn)
+    cached = _graph_buffers_cache.get(key)
+    if cached is None:
+        _graph_buffers_cache.clear()
+        cached = build_graph_buffers(conn)
+        _graph_buffers_cache[key] = cached
+    return cached
+
+
+def _immutable_headers(cache_key: tuple[Any, ...]) -> dict[str, str]:
+    # The frontend appends ?v=<archive name> to both URLs, so a new snapshot is a
+    # new URL and immutable caching is safe; ETag covers non-URL revalidation.
+    token = hashlib.md5(repr(cache_key).encode()).hexdigest()[:16]
+    return {
+        "ETag": f'"sg-{token}"',
+        "Cache-Control": "public, max-age=31536000, immutable",
+    }
 
 
 @app.get("/api/manifest")
 def manifest() -> dict[str, Any]:
     with connect_readonly() as conn:
-        level_counts = {}
-        for level, config in LEVELS.items():
-            min_degree = config["min_degree"]
-            min_shared = config["min_shared"]
-            node_count = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM graph_nodes
-                WHERE visible_degree >= ?
-                """,
-                [min_degree],
-            ).fetchone()[0]
-            edge_count = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM visible_person_edges e
-                JOIN graph_nodes s ON e.source_person_id = s.person_id
-                JOIN graph_nodes t ON e.target_person_id = t.person_id
-                WHERE s.visible_degree >= ?
-                  AND t.visible_degree >= ?
-                  AND e.shared_works_count >= ?
-                """,
-                [min_degree, min_degree, min_shared],
-            ).fetchone()[0]
-            level_counts[level] = {"nodes": node_count, "edges": edge_count, **config}
-        snapshot = _latest_data_snapshot(conn)
-
-    return {"version": 1, "db_path": str(get_db_path()), "snapshot": snapshot, "levels": level_counts}
-
-
-@app.get("/api/graph/{level}/nodes")
-def graph_nodes(level: str) -> list[dict[str, Any]]:
-    if level not in LEVELS:
-        raise HTTPException(status_code=404, detail=f"Unknown graph level: {level}")
-
-    min_degree = LEVELS[level]["min_degree"]
-    with connect_readonly() as conn:
-        rows = conn.execute(
+        graph_row = _graph_geometry_row(conn)
+        edge_count = conn.execute(
             """
-            SELECT
-              g.person_id::TEXT AS id,
-              p.name,
-              p.infobox,
-              ROUND(g.x, 3) AS x,
-              ROUND(g.y, 3) AS y,
-              g.visible_degree AS degree,
-              g.visible_weighted_degree,
-              g.node_size,
-              g.role_layer
-            FROM graph_nodes g
-            JOIN persons p ON g.person_id = p.id
-            WHERE g.visible_degree >= ?
-            ORDER BY g.visible_degree DESC, g.visible_weighted_degree DESC, g.person_id
-            """,
-            [min_degree],
-        ).fetchall()
-
-    return [
-        {
-            "id": row[0],
-            "name": row[1],
-            "nameCn": extract_person_name_cn(row[2] or ""),
-            "nameTw": extract_person_name_tw(row[2] or ""),
-            "x": row[3],
-            "y": row[4],
-            "degree": row[5],
-            "visibleWeightedDegree": row[6],
-            "nodeSize": row[7],
-            "roleLayer": row[8],
-        }
-        for row in rows
-    ]
-
-
-@app.get("/api/graph/{level}/edges")
-def graph_edges(level: str) -> list[dict[str, Any]]:
-    if level not in LEVELS:
-        raise HTTPException(status_code=404, detail=f"Unknown graph level: {level}")
-
-    config = LEVELS[level]
-    with connect_readonly() as conn:
-        rows = conn.execute(
-            """
-            SELECT
-              e.source_person_id::TEXT AS source,
-              e.target_person_id::TEXT AS target,
-              e.shared_works_count AS w,
-              e.collaboration_score,
-              e.first_year,
-              e.last_year,
-              e.selection_reason
+            SELECT COUNT(*)
             FROM visible_person_edges e
             JOIN graph_nodes s ON e.source_person_id = s.person_id
             JOIN graph_nodes t ON e.target_person_id = t.person_id
-            WHERE s.visible_degree >= ?
-              AND t.visible_degree >= ?
-              AND e.shared_works_count >= ?
-            ORDER BY e.shared_works_count DESC, e.collaboration_score DESC
-            """,
-            [config["min_degree"], config["min_degree"], config["min_shared"]],
-        ).fetchall()
+            """
+        ).fetchone()[0]
+        snapshot = _latest_data_snapshot(conn)
 
-    return row_dicts(
-        rows,
-        ["source", "target", "w", "collaborationScore", "firstYear", "lastYear", "selectionReason"],
-    )
+    return {
+        "version": 2,
+        "db_path": str(get_db_path()),
+        "snapshot": snapshot,
+        "graph": {
+            "nodes": int(graph_row[0]),
+            "edges": int(edge_count),
+            "layoutMethod": str(graph_row[1]),
+            # Frontend cache-buster for the immutable buffers/meta URLs.
+            "geometryFingerprint": float(graph_row[2]),
+        },
+    }
+
+
+@app.get("/api/graph/buffers")
+def graph_buffers(request: Request) -> Response:
+    with connect_readonly() as conn:
+        cache_key = _graph_cache_key(conn)
+        buffers = _graph_buffers(conn)
+
+    headers = _immutable_headers(cache_key)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    return Response(content=buffers.payload, media_type="application/octet-stream", headers=headers)
+
+
+@app.get("/api/graph/meta")
+def graph_meta(request: Request) -> Response:
+    with connect_readonly() as conn:
+        cache_key = _graph_cache_key(conn)
+        buffers = _graph_buffers(conn)
+        snapshot = _latest_data_snapshot(conn)
+
+    headers = _immutable_headers(cache_key)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    body = json.dumps({**buffers.meta, "snapshot": snapshot}, ensure_ascii=False)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 @app.get("/api/person/{person_id}/galaxy")

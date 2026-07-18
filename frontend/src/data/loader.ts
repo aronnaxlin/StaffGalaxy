@@ -12,7 +12,7 @@ import { recordRuntimeMetric } from './runtimeMetrics'
 
 interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string; expandedFrom?: string }
 
-export type Level = 'person' | 'global' | 'l0' | 'l1'
+export type Level = 'person' | 'global'
 
 export interface LevelData {
   nodes: GalaxyNode[]
@@ -25,7 +25,6 @@ interface PersonGalaxyResponse {
   edges: RawEdge[]
 }
 
-const cache: Partial<Record<Level, LevelData>> = {}
 let manifestCache: Manifest | null = null
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -42,29 +41,6 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(`Request failed: ${response.status} ${url}`)
   }
   return response.json()
-}
-
-export async function loadLevel(level: Level): Promise<LevelData> {
-  if (level === 'person') {
-    throw new Error('Use loadPersonGalaxy(personId) for person-level graphs')
-  }
-  if (cache[level]) return cache[level]!
-  const [nodes, rawEdges] = await Promise.all([
-    fetchJson<GalaxyNode[]>(`/api/graph/${level}/nodes`),
-    fetchJson<RawEdge[]>(`/api/graph/${level}/edges`),
-  ])
-  const edges: GalaxyEdge[] = rawEdges.map(e => ({
-    source: e.source,
-    target: e.target,
-    sharedWorksCount: e.w,
-    collaborationScore: e.collaborationScore,
-    firstYear: e.firstYear,
-    lastYear: e.lastYear,
-    selectionReason: e.selectionReason,
-    expandedFrom: e.expandedFrom,
-  }))
-  cache[level] = { nodes, edges }
-  return cache[level]!
 }
 
 export async function loadManifest(): Promise<Manifest> {

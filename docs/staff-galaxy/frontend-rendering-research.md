@@ -1,14 +1,19 @@
 # Staff Galaxy Frontend Rendering
 
-> **Status note (2026-07-06):** Phase 1 of
-> `docs/staff-galaxy/edge-rendering-performance-plan.md` has landed: cosmos.gl
-> is now v3 (not 2.6.4, see below), edge LOD is a zero-copy strength-sorted
-> `subarray()` budget (not a per-zoom threshold rebuild), hover highlighting is
-> v3 config-driven via a custom `pointToLinkIndices` incidence map, and color
-> buffers are normalized `0-1` (not `0-255`). The sections below are otherwise
-> unchanged and still describe the coordinate system, bundle strategy, and
-> what was removed pre-v3 accurately. Phases 2/3 (binary transport, offline
-> layout, single merged graph) have not landed — global/l0/l1 still exist.
+> **Status note (2026-07-18):** Phase 2/3 of
+> `docs/staff-galaxy/edge-rendering-performance-plan.md` have landed — the
+> global/l0/l1 three-level system described in this document **no longer
+> exists**. The global view is a single 21,383-node / 529,310-edge graph fed
+> by `GET /api/graph/buffers` (binary) + `GET /api/graph/meta` (JSON labels);
+> level UI was replaced by client-side min-degree and edge-budget sliders.
+> Everything in this document about level switching, per-level JSON
+> endpoints, and the spiral layout is historical. Renderer-level facts
+> (cosmos.gl v3 color normalization, config-driven hover highlight, zero-copy
+> `subarray()` edge budget, bundle strategy) remain accurate.
+>
+> Earlier status note (2026-07-06): Phase 1 landed cosmos.gl v3, zero-copy
+> edge LOD, v3 config-driven hover highlight via `pointToLinkIndices`, and
+> `0-1` color buffers.
 
 ## Current Decision
 

@@ -65,18 +65,18 @@ export interface DataSource {
   snapshot: DataSnapshot | null
 }
 
-export interface GraphLevelManifest {
+export interface GraphManifest {
   nodes: number
   edges: number
-  min_degree: number
-  min_shared: number
+  layoutMethod: string
+  geometryFingerprint: number
 }
 
 export interface Manifest {
   version: number
   db_path: string
   snapshot: DataSnapshot | null
-  levels: Record<string, GraphLevelManifest>
+  graph: GraphManifest
 }
 
 export interface SharedWork {

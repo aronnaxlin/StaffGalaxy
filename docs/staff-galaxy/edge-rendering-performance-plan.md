@@ -1,7 +1,16 @@
 # 星雲圖邊渲染性能：現狀評估與重構方案
 
-Last updated: 2026-07-06（v3：Phase 1 已實施並用真實數據驗證）
-Status: **Phase 1 已完成並用真實 Bangumi Archive 快照驗證**；Phase 2/3/4/5 仍為提案
+Last updated: 2026-07-18（v4：Phase 1/2/3 已實施並用真實數據驗證）
+Status: **Phase 1/2/3 已完成**（cosmos.gl v3、二進制傳輸、Leiden 分層佈局、三檔合併）；Phase 4/5 仍為提案
+
+> **Phase 2/3 實施記錄（2026-07-18）：** `/api/graph/{level}/nodes|edges` 已刪除，替換為
+> `GET /api/graph/buffers`（單一分段 buffer，7.8MB 裸 / 1.84MB gzip）+
+> `GET /api/graph/meta`（labels.json 對應物，566KB gzip）；快照+幾何指紋做
+> ETag/immutable 緩存。`graph_nodes.community_id` 已由 Leiden 填上（481 社群，
+> `hier_leiden_fr_v1`），簇間 FR 之後加了一輪圓形打包（circle packing）防止
+> 大簇質心重疊成亮斑；前端按 `community` 段做低飽和度色相偏移。global/l0/l1
+> 三檔 UI 已刪除，替換為最小度數/邊數預算兩個客戶端滑桿。實測與已知限制見
+> `reports/graph-performance.md`「Phase 2+3」一節。
 
 目標：把星雲圖的邊（關係）渲染體驗極度逼近 Obsidian Graph View —— 全量邊常駐可見、60fps 平移縮放、懸停即時高亮鄰居、標籤隨縮放淡入 —— 而不是像現在這樣把邊砍到只剩零頭來自保。
 

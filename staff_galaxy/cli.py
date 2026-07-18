@@ -8,6 +8,7 @@ from .database import connect_database, create_indexes, create_supporting_views,
 from .graph_nodes import build_graph_nodes
 from .graph_audit import audit_graph_layers
 from .ingest import ingest_archive
+from .layout import build_hierarchical_layout
 from .report import write_audit_report
 from .search_index import build_person_search_terms
 from .roles import detect_staff_constants, load_anime_staff_positions
@@ -40,6 +41,7 @@ def main() -> int:
         collaboration_stats = build_person_collaboration_edges(conn)
         edge_stats = build_visible_person_edges(conn, min_role_weight=12.0, top_k=10)
         node_stats = build_graph_nodes(conn, min_role_weight=12.0)
+        layout_stats = build_hierarchical_layout(conn)
         search_stats = build_person_search_terms(conn)
         create_supporting_views(conn)
         create_indexes(conn)
@@ -66,6 +68,12 @@ def main() -> int:
         print(
             f"Graph nodes built: {node_stats.node_count:,} people "
             f"({node_stats.nodes_with_visible_edges:,} with visible edges).",
+            flush=True,
+        )
+        print(
+            f"Layout {layout_stats.layout_method}: {layout_stats.community_count:,} communities "
+            f"(largest {layout_stats.largest_community_size:,}), "
+            f"{layout_stats.isolated_node_count:,} isolates, {layout_stats.elapsed_seconds}s.",
             flush=True,
         )
         print(

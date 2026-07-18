@@ -206,3 +206,52 @@ Search distribution sample against the local FastAPI server (`5` runs per query)
 - Broader browser samples across multiple reloads and hardware states.
 - Person-centered galaxy load time for several high-degree and low-degree people beyond `宮崎駿`.
 - Interaction timing for drag/zoom/hover behavior inside Cosmos.
+
+## Phase 2+3 (binary transport + hierarchical Leiden layout, 2026-07-18)
+
+Snapshot `dump-2026-06-30.210443Z`, production build (`npm run build && npm run preview`),
+global view = single graph, 21,383 nodes / 529,310 edges resident.
+
+### Transport (Phase 2)
+
+| | old (`/api/graph/global/edges` JSON) | new (`/api/graph/buffers` + `/api/graph/meta`) |
+|---|---:|---:|
+| payload | 55 MB JSON | 7.8 MB raw → **1.84 MB gzip** + 2.78 MB → 566 KB gzip meta |
+| parse cost | ~3.0 s (download + JSON.parse + graphology) | `DataView` slice, ~0 |
+| cached serve (uvicorn) | — | ~43 ms |
+| second visit | full re-fetch | `immutable` + ETag → 304 / disk cache |
+
+Measured in Chrome (headless): `graph-buffers-loaded` 1.19–2.1 s cold (both
+requests + parse), canvas visible ~2.25–5 s after navigation end-to-end
+(cosmos device init on SwiftShader dominates; real GPUs are much faster).
+
+### Layout (Phase 3)
+
+`hier_leiden_fr_v1` (Leiden + inter-cluster FR + circle-packing + intra-cluster
+FR/DrL), 21,383 nodes / 529,310 edges, 139 s single run:
+
+- 481 communities; largest 4,398 (bilibili/Chinese co-production), 4,252 (producer
+  core), 3,697 (Ghibli & Sunrise film: 宮崎駿/高畑勲/富野由悠季), 3,369
+  (Aniplex/film directors: 庵野秀明/新海誠/細田守/今敏), 1,496 (KyoAni & Shaft:
+  山田尚子/石原立也/新房昭之) — semantics verified by SQL spot-checks.
+- 58.4% of edges intra-community; mean edge length 11.2 vs 3,717 span.
+- 374 isolates on outer ring (community_id NULL → client sentinel 0xFFFF).
+- Community hue shift client-side (golden-angle hue per community, s=0.32).
+
+### Browser interaction verification (2026-07-18)
+
+- Global galaxy renders; `cosmos-ready` metric: 21,383 nodes, 529,310 total edges,
+  160,000 visible at default zoom (auto budget tier).
+- Hover highlight: label + O(degree) neighbor highlight works
+  (requires >2px mouse movement between checks — cosmos v3's
+  `findHoveredItem` throttle skips sub-2px jitter).
+- Click node → `/person/{id}` person galaxy (verified person 16347 / 村上漢).
+- Edge-budget slider at max: 529,310 / 529,310 edges rendered.
+- Min-degree slider ≥100 applies greyout filter.
+
+### Known limitations
+
+- FPS during pan/zoom not measured: headless/SwiftShader automation throttles
+  rAF, numbers are meaningless; needs real-GPU profiling (Chrome tracing).
+- SwiftShader (real-Chrome automation) renders the global view slowly —
+  expected for software rasterization, not a regression signal.

@@ -88,8 +88,8 @@ Base URL: `http://localhost:8000`
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/graph/{level}/nodes` | Graph nodes for `global`, `l0`, or `l1` level |
-| `GET /api/graph/{level}/edges` | Graph edges for `global`, `l0`, or `l1` level |
+| `GET /api/graph/buffers` | Single-segment binary graph (positions/sizes/colors/community/edges), ETag + immutable |
+| `GET /api/graph/meta` | Node metadata JSON (id, name variants, degree) — labels.json equivalent |
 | `GET /api/person/{id}/galaxy` | Person-centered galaxy with data-driven layout |
 | `GET /api/search/persons?q=...&limit=...` | Unified search (name, CJK variants, Bangumi ID) |
 | `GET /api/collaboration/{a}/{b}` | Shared works with roles, years, and scores |
@@ -119,8 +119,8 @@ BFS with multi-parent tracking returns all shortest paths between two people. Re
 - Tailwind CSS 4
 - Cosmos.gl (`@cosmos.gl/graph`) v3 — WebGL graph renderer (upgraded from 2.6.4;
   see `docs/staff-galaxy/edge-rendering-performance-plan.md` Phase 1)
-- Graphology — graph data model (still used for search/panel lookups; no longer
-  touched in the Cosmos render/LOD/hover hot path)
+- Graphology — person-galaxy graphs only (NodePanel neighbor lookups); the
+  global galaxy render path is pure typed arrays from `/api/graph/buffers`
 - No Sigma.js (removed)
 
 ### Components
@@ -140,6 +140,18 @@ BFS with multi-parent tracking returns all shortest paths between two people. Re
 
 ### Key design decisions
 
+- Single global graph, no levels: `App.tsx` loads `/api/graph/buffers` +
+  `/api/graph/meta` once via `data/graphBuffers.ts` (immutable-cached, keyed by
+  archive name + geometry fingerprint). Level UI was replaced by client-side
+  min-degree and edge-budget sliders in `CosmosGalaxyView`.
+- `data/cosmosPayload.ts` builds the Cosmos payload: global = direct typed-array
+  views over the binary buffer (no graphology, no JSON rows); person = the old
+  graphology path. Node order is weighted-degree DESC (server) so default labels
+  are prefix slices; edge order is shared_works_count DESC (server) so LOD is a
+  prefix slice.
+- Community coloring: server ships a neutral gray base color; the client applies
+  a low-saturation golden-angle hue per Leiden `community` id
+  (`communityColor` in `cosmosPayload.ts`).
 - Hover labels use DOM direct manipulation (not React state) for smooth performance at 21K+ nodes.
 - Cosmos config is a module-level constant, avoiding re-creation on every render.
 - Edge LOD: edges are sorted descending by strength once per graph load, then a
@@ -170,30 +182,24 @@ BFS with multi-parent tracking returns all shortest paths between two people. Re
 
 ### Performance characteristics
 
-- 21,383 nodes, 529,310 edges in the global backbone as of the
-  `dump-2026-06-30` snapshot (`min_shared` floor lowered from 12 to 2 unlocked
-  372,661 of them for the client — up from 3,901 at the old floor — see
-  `docs/staff-galaxy/edge-rendering-performance-plan.md` Phase 1)
+- Single global graph as of `dump-2026-06-30`: 21,383 nodes / 529,310 edges,
+  shipped as `/api/graph/buffers` (7.8 MB raw / 1.84 MB gzip) +
+  `/api/graph/meta` (2.78 MB / 566 KB gzip). `graph-buffers-loaded` metric
+  ≈1.2–2.1 s cold in headless Chrome; canvas visible ≈2.25–5 s end-to-end on
+  SwiftShader (device init dominates; real GPUs are faster). See
+  `reports/graph-performance.md` "Phase 2+3".
+- Layout is `hier_leiden_fr_v1` (Leiden + inter-cluster FR + circle packing +
+  intra-cluster FR/DrL, `staff_galaxy/layout.py`): 481 communities, 58.4% of
+  edges intra-community, mean edge length 11.2 vs 3,717 span, 139 s build.
 - Zoom-dependent edge budget (prefix slice of the strength-sorted arrays) keeps
-  visible edges manageable without discarding data
-- No full-graph force layout at startup
+  visible edges manageable without discarding data; a slider overrides it
+  manually up to the full 529,310.
 - cosmos.gl v3's luma.gl (WebGL2) port is heavier than the old regl-based v2:
-  the lazy Cosmos chunk grew from ~362 KB (~106 KB gzip) to ~655 KB (~151 KB
-  gzip)
-- Measured against the real `dump-2026-06-30` snapshot, production build
-  (`npm run build && npm run preview`), global view with 21,383 nodes / 60,000
-  of 372,661 edges shown (default zoomed-out budget tier): Cosmos device-ready
-  ~3.06s after navigation (~3.0s of that is `/api/graph/global/edges` fetch +
-  JSON.parse + graphology construction — a 55MB JSON payload for 372,661
-  edges; Cosmos's own `setPointPositions`/`setLinks`/`render()` calls and
-  device init add only ~50ms on top). This JSON-transport cost is exactly what
-  Phase 2 (binary transport, dropping graphology from the render path) is
-  meant to eliminate.
+  the lazy Cosmos chunk is ~655 KB (~151 KB gzip).
 - **Dev-server (`npm run dev`) load times are not representative** — React 19
-  StrictMode double-invokes mount effects in development, which was observed
-  to roughly double the apparent time-to-ready (~8.6s in dev vs. ~3.06s in a
-  production preview, same data). Always measure against a production build,
-  matching this project's existing convention in `reports/graph-performance.md`.
+  StrictMode double-invokes mount effects in development. Always measure against
+  a production build, matching this project's existing convention in
+  `reports/graph-performance.md`.
 
 ## Commands
 
@@ -214,6 +220,12 @@ python3 -m venv .venv
 
 ```bash
 .venv/bin/python scripts/migrate_role_weights.py
+```
+
+### Recompute the galaxy layout only (no re-ingest)
+
+```bash
+.venv/bin/python scripts/migrate_layout.py
 ```
 
 ### Start backend
@@ -270,15 +282,16 @@ to the same date — when they conflict, newer supersedes older:
 - **`docs/staff-galaxy/edge-rendering-performance-plan.md` is the current
   authoritative plan for graph rendering/performance work** (nebula edge
   rendering, cosmos.gl version, node/edge transport format, layout
-  algorithm, global/l0/l1 view structure). It is a proposal, not yet
-  implemented — check `git log`/the code to see how much has landed.
+  algorithm). Its Phase 1/2/3 are implemented — the three-level
+  global/l0/l1 system and the JSON graph endpoints are gone, replaced by a
+  single binary graph and the `hier_leiden_fr_v1` layout; Phase 4 (label
+  polish) and Phase 5 (26M-edge contingency) remain proposals.
 - `docs/staff-galaxy/frontend-rendering-research.md` and
   `reports/graph-performance.md` describe the *pre-rewrite* architecture
   (Cosmos.gl 2.6.4, JSON transport, three-tier global/l0/l1 levels,
-  spiral layout). Once the plan above lands, both are stale on any point
-  where they conflict with it (renderer version, level count, transport
-  format, layout method) — do not use them to justify keeping the old
-  three-tier level system or the JSON graph endpoints.
+  spiral layout) wherever they have not been annotated — do not use them
+  to justify keeping the old three-tier level system or the JSON graph
+  endpoints.
 - If you are implementing part of the plan, update these older docs (or
   mark the superseded sections) as you go, rather than leaving
   contradictory docs for the next agent to untangle.

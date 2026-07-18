@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
+import struct
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
+from fastapi import Request
+
 from staff_galaxy import api
+from staff_galaxy.graph_buffers import HEADER_SIZE, MAGIC, SEGMENT_NAMES, parse_segment_table
+
+
+def _get_request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
+    return Request({"type": "http", "method": "GET", "headers": headers or []})
 from staff_galaxy.database import (
     connect_database,
     create_indexes,
@@ -156,13 +165,60 @@ class CompleteGraphApiTests(unittest.TestCase):
     def test_manifest_returns_data_snapshot(self) -> None:
         manifest = api.manifest()
 
+        self.assertEqual(manifest["version"], 2)
         self.assertEqual(manifest["snapshot"]["archiveName"], "dump-test.zip")
         self.assertEqual(manifest["snapshot"]["archiveCreatedAt"], "2026-05-19T21:04:35Z")
         self.assertEqual(manifest["snapshot"]["archiveSizeBytes"], 1234)
         self.assertEqual(manifest["snapshot"]["sourceUrl"], "https://example.test/dump-test.zip")
+        self.assertEqual(manifest["graph"]["nodes"], 4)
+        self.assertEqual(manifest["graph"]["edges"], 1)
+
+    def test_graph_buffers_roundtrip(self) -> None:
+        response = api.graph_buffers(_get_request())
+        payload = response.body
+
+        self.assertEqual(response.media_type, "application/octet-stream")
+        self.assertEqual(payload[:4], MAGIC)
+        _, version, node_count, edge_count = struct.unpack_from("<4sIII", payload, 0)
+        self.assertEqual(version, 2)
+        self.assertEqual(node_count, 4)
+        self.assertEqual(edge_count, 1)
+
+        table = parse_segment_table(payload)
+        self.assertEqual(tuple(table), SEGMENT_NAMES)
+        # 4-byte alignment lets the frontend construct typed-array views directly.
+        self.assertTrue(all(offset % 4 == 0 for offset, _ in table.values()))
+        self.assertEqual(table["positions"], (HEADER_SIZE, 8))
+        self.assertEqual(table["sizes"][1], 4)
+        self.assertEqual(table["colors"][1], 16)
+        self.assertEqual(table["community"][1], 4)
+        self.assertEqual(table["edgePairs"][1], 2)
+        self.assertEqual(table["edgeWeights"][1], 1)
+        self.assertEqual(table["edgeShared"][1], 1)
+
+        # Edge (1, 3) — the only visible edge — must reference meta index order.
+        meta = json.loads(api.graph_meta(_get_request()).body)
+        index_of = {node["id"]: i for i, node in enumerate(meta["nodes"])}
+        offset = table["edgePairs"][0]
+        source_index, target_index = struct.unpack_from("<II", payload, offset)
+        self.assertEqual({source_index, target_index}, {index_of["1"], index_of["3"]})
+
+        # Positions are normalized into the 8192 Cosmos space.
+        pos_offset = table["positions"][0]
+        coords = struct.unpack_from(f"<{node_count * 2}f", payload, pos_offset)
+        self.assertTrue(all(0.0 <= v <= 8192.0 for v in coords))
+
+    def test_graph_buffers_etag_revalidation(self) -> None:
+        first = api.graph_buffers(_get_request())
+        etag = first.headers["ETag"]
+        self.assertIn("immutable", first.headers["Cache-Control"])
+
+        second = api.graph_buffers(_get_request([(b"if-none-match", etag.encode())]))
+        self.assertEqual(second.status_code, 304)
 
     def test_graph_and_path_return_person_name_variants(self) -> None:
-        nodes = api.graph_nodes("global")
+        meta_response = api.graph_meta(_get_request())
+        nodes = json.loads(meta_response.body)["nodes"]
         center = api.person_galaxy(1)
         path = api.shortest_path(1, 4, max_paths=3, max_depth=3)
 

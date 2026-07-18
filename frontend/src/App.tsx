@@ -1,17 +1,18 @@
-import { Suspense, lazy, useState, useEffect, useCallback } from 'react'
-import Graph from 'graphology'
-import { loadLevel, loadManifest, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
+import { Suspense, lazy, useState, useEffect, useCallback, useMemo } from 'react'
+import type Graph from 'graphology'
+import { loadManifest, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
+import { loadGlobalGraph, type GlobalGraphData } from './data/graphBuffers'
 import { buildGraph } from './data/graphBuilder'
 import { SearchBar } from './components/SearchBar'
 import { NodePanel } from './components/NodePanel'
 import { NameModeToggle } from './components/NameModeToggle'
-import { mutedLink, panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
+import { mutedLink, panelShell } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
+import { buildGlobalPayload, buildPersonPayload } from './data/cosmosPayload'
 import type { Manifest, PersonNameMode } from './types'
 
 type ViewMode = 'galaxy' | 'constellation'
 type ConstellationMode = 'path' | 'compare'
-type GraphLevel = Exclude<Level, 'person'>
 
 const CosmosGalaxyView = lazy(() => import('./components/CosmosGalaxyView').then(module => ({
   default: module.CosmosGalaxyView,
@@ -25,41 +26,9 @@ const PERSON_GALAXY_MIN_SHARED_DEFAULT = 1
 const PERSON_GALAXY_EXPANSION_LIMIT = 36
 const PERSON_GALAXY_EXPANSION_SCALE = 0.34
 
-const GRAPH_LEVELS: GraphLevel[] = ['global', 'l0', 'l1']
-
 const LEVEL_LABELS: Record<Level, string> = {
   person: '个人星系',
   global: '全量星系',
-  l0: '核心视图',
-  l1: '细节视图',
-}
-
-function GraphLevelToggle({
-  level,
-  onChange,
-}: {
-  level: Level
-  onChange: (level: GraphLevel) => void
-}) {
-  return (
-    <div className={segmentedGroupClass}>
-      {GRAPH_LEVELS.map(option => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          className={segmentedButtonClass(level === option, 'slate')}
-          title={option === 'global'
-            ? 'Sparse global graph'
-            : option === 'l0'
-              ? 'Dense core graph'
-              : 'Mid-density detail graph'}
-        >
-          {LEVEL_LABELS[option]}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 function ViewLoading({ label }: { label: string }) {
@@ -129,14 +98,9 @@ function DataSourceNotice({
 interface AppRoute {
   view: ViewMode
   personId?: string
-  graphLevel?: GraphLevel
   constellationMode?: ConstellationMode
   pathFrom?: string
   pathTo?: string
-}
-
-function readGraphLevel(value: string | null): GraphLevel {
-  return value === 'l0' || value === 'l1' ? value : 'global'
 }
 
 function readRoute(): AppRoute {
@@ -153,7 +117,7 @@ function readRoute(): AppRoute {
       pathTo: url.searchParams.get('to') ?? url.searchParams.get('b') ?? undefined,
     }
   }
-  return { view: 'galaxy', graphLevel: readGraphLevel(url.searchParams.get('level')) }
+  return { view: 'galaxy' }
 }
 
 function writeRoute(path: string, replace = false) {
@@ -165,10 +129,6 @@ function constellationPath(mode: ConstellationMode, personAId?: string | null, p
   const basePath = mode === 'compare' ? '/compare' : '/path'
   if (!personAId || !personBId) return basePath
   return `${basePath}?from=${encodeURIComponent(personAId)}&to=${encodeURIComponent(personBId)}`
-}
-
-function graphLevelPath(graphLevel: GraphLevel) {
-  return graphLevel === 'global' ? '/' : `/?level=${graphLevel}`
 }
 
 function edgeKey(source: string, target: string) {
@@ -207,6 +167,7 @@ function mergePersonExpansion(baseData: LevelData, anchorId: string, expansionDa
 }
 
 export default function App() {
+  const [globalData, setGlobalData] = useState<GlobalGraphData | null>(null)
   const [graph, setGraph] = useState<Graph | null>(null)
   const [level, setLevel] = useState<Level>('global')
   const [loading, setLoading] = useState(true)
@@ -254,16 +215,29 @@ export default function App() {
     }
   }, [])
 
-  const loadGraphLevelView = useCallback((graphLevel: GraphLevel = 'global', updateUrl = true) => {
-    const nextRoute = { view: 'galaxy' as const, graphLevel }
-    setRoute(nextRoute)
+  const loadGlobalView = useCallback((updateUrl = true) => {
+    setRoute({ view: 'galaxy' })
     if (updateUrl) {
-      writeRoute(graphLevelPath(graphLevel))
+      writeRoute('/')
     }
   }, [])
 
   useEffect(() => {
     let cancelled = false
+
+    async function showGlobalGraph() {
+      const manifestData = await loadManifest()
+      const data = await loadGlobalGraph(manifestData)
+      if (cancelled) return
+      setGlobalData(data)
+      setGraph(null)
+      setLevel('global')
+      setSelectedNode(null)
+      setPersonGraphData(null)
+      setExpandedNeighborId(null)
+      setExpandingNeighborId(null)
+      setLoading(false)
+    }
 
     async function applyRoute() {
       if (route.view === 'constellation') {
@@ -282,7 +256,7 @@ export default function App() {
             minShared: personGalaxyMinShared,
           })
           if (cancelled) return
-          setGraph(buildGraph(data, 'person'))
+          setGraph(buildGraph(data))
           setLevel('person')
           setSelectedNode(route.personId)
           setPersonGraphData(data)
@@ -290,14 +264,8 @@ export default function App() {
           setExpandingNeighborId(null)
         } catch {
           if (cancelled) return
-          const data = await loadLevel('global')
+          await showGlobalGraph()
           if (cancelled) return
-          setGraph(buildGraph(data, 'global'))
-          setLevel('global')
-          setSelectedNode(null)
-          setPersonGraphData(null)
-          setExpandedNeighborId(null)
-          setExpandingNeighborId(null)
           setRoute({ view: 'galaxy' })
           writeRoute('/', true)
         } finally {
@@ -306,21 +274,23 @@ export default function App() {
         return
       }
 
-      const graphLevel = route.graphLevel ?? 'global'
-      const data = await loadLevel(graphLevel)
-      if (cancelled) return
-      setGraph(buildGraph(data, graphLevel))
-      setLevel(graphLevel)
-      setSelectedNode(null)
-      setPersonGraphData(null)
-      setExpandedNeighborId(null)
-      setExpandingNeighborId(null)
-      setLoading(false)
+      try {
+        await showGlobalGraph()
+      } catch (error) {
+        console.error('Failed to load global graph', error)
+        if (!cancelled) setLoading(false)
+      }
     }
 
     void applyRoute()
     return () => { cancelled = true }
   }, [personGalaxyLimit, personGalaxyMinShared, route])
+
+  const payload = useMemo(() => {
+    if (level === 'person' && graph) return buildPersonPayload(graph, personNameMode)
+    if (level === 'global' && globalData) return buildGlobalPayload(globalData, personNameMode)
+    return null
+  }, [globalData, graph, level, personNameMode])
 
   const handleNodeClick = useCallback((nodeId: string) => {
     void loadPersonView(nodeId)
@@ -329,10 +299,6 @@ export default function App() {
   const handleSearchSelect = useCallback((entry: { id: string }) => {
     void loadPersonView(entry.id)
   }, [loadPersonView])
-
-  const handleGraphLevelChange = useCallback((nextLevel: GraphLevel) => {
-    void loadGraphLevelView(nextLevel)
-  }, [loadGraphLevelView])
 
   const handleConstellationNodeClick = useCallback((nodeId: string) => {
     setView('galaxy')
@@ -370,7 +336,7 @@ export default function App() {
     if (level !== 'person' || !personGraphData) return
 
     if (expandedNeighborId === neighborId) {
-      setGraph(buildGraph(personGraphData, 'person'))
+      setGraph(buildGraph(personGraphData))
       setExpandedNeighborId(null)
       setExpandingNeighborId(null)
       return
@@ -383,7 +349,7 @@ export default function App() {
         minShared: personGalaxyMinShared,
       })
       const mergedData = mergePersonExpansion(personGraphData, neighborId, expansionData)
-      setGraph(buildGraph(mergedData, 'person'))
+      setGraph(buildGraph(mergedData))
       setExpandedNeighborId(neighborId)
     } finally {
       setExpandingNeighborId(null)
@@ -453,15 +419,14 @@ export default function App() {
 
   return (
     <div className="relative w-full h-full">
-      {graph && (
+      {payload && (
         <Suspense fallback={<ViewLoading label="Loading graph renderer…" />}>
           <CosmosGalaxyView
-            graph={graph}
+            payload={payload}
             onNodeClick={handleNodeClick}
             level={level}
             selectedNode={selectedNode}
-            personNameMode={personNameMode}
-            onBackToGlobal={() => loadGraphLevelView('global')}
+            onBackToGlobal={() => loadGlobalView()}
           />
         </Suspense>
       )}
@@ -490,10 +455,7 @@ export default function App() {
             关系星图
           </button>
         </div>
-        <div className="pointer-events-auto ml-auto">
-          <GraphLevelToggle level={level} onChange={handleGraphLevelChange} />
-        </div>
-        <div className="hidden rounded-full border border-[#f09199]/25 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-400 backdrop-blur lg:block">
+        <div className="ml-auto hidden rounded-full border border-[#f09199]/25 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-400 backdrop-blur lg:block">
           {LEVEL_LABELS[level]}
         </div>
         <div className="pointer-events-auto">

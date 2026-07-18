@@ -1,14 +1,16 @@
 import Graph from 'graphology'
-import type { Level } from './loader'
 import type { LevelData } from './loader'
 
-function sizeFromAttrs(attrs: Record<string, unknown>, level: Level): number {
+// Person-galaxy graphs only: the global galaxy renders straight from the
+// binary buffers (data/graphBuffers.ts) and never touches graphology.
+// graphology remains here because NodePanel neighbor lookups are convenient
+// on the small (≤ few hundred node) person graphs.
+
+function sizeFromAttrs(attrs: Record<string, unknown>): number {
   if (attrs.isCenter) return 10
   const dbSize = Number(attrs.nodeSize ?? 0)
+  if (dbSize > 0) return Math.max(2.2, dbSize * 0.65)
   const degree = Number(attrs.degree ?? 0)
-  if (dbSize > 0) {
-    return level === 'person' ? Math.max(2.2, dbSize * 0.65) : Math.max(1.8, dbSize * 0.55)
-  }
   return 1.4 + Math.log10(1 + degree) * 1.2
 }
 
@@ -16,15 +18,9 @@ function colorFromAttrs(attrs: Record<string, unknown>): string {
   if (attrs.isCenter) return '#fef08a'
   if (attrs.expandedFrom) return '#67e8f9'
 
-  const roleLayer = attrs.roleLayer as string | undefined
-  const degree = Number(attrs.degree ?? 0)
   // Obsidian-style: mostly white/gray dots, subtle warmth for high-degree nodes.
+  const degree = Number(attrs.degree ?? 0)
   const t = Math.min(1, Math.log10(1 + degree) / 3.5)
-
-  if (roleLayer === 'Tier A') {
-    const v = Math.round(210 + t * 45)
-    return `rgb(${v},${Math.round(v * 0.94)},${Math.round(v * 0.88)})`
-  }
   const v = Math.round(195 + t * 60)
   return `rgb(${v},${v},${v})`
 }
@@ -32,7 +28,6 @@ function colorFromAttrs(attrs: Record<string, unknown>): string {
 function edgeStyle(
   sharedWorksCount: number,
   collaborationScore: number | undefined,
-  level: Level,
   firstYear?: number,
   lastYear?: number,
   expandedFrom?: string,
@@ -40,21 +35,9 @@ function edgeStyle(
   const score = collaborationScore ?? sharedWorksCount
   const t = Math.min(1, Math.log10(1 + score) / 2.2)
 
-  const alpha = level === 'l1'
-    ? 0.006 + t * 0.024
-    : level === 'person'
-      ? 0.04 + t * 0.08
-      : 0.01 + t * 0.04
-
-  const size = level === 'l1'
-    ? 0.1 + t * 0.3
-    : level === 'person'
-      ? 0.2 + t * 0.55
-      : 0.14 + t * 0.44
-
   return {
-    size,
-    color: `rgba(148,163,184,${alpha.toFixed(3)})`,
+    size: 0.2 + t * 0.55,
+    color: `rgba(148,163,184,${(0.04 + t * 0.08).toFixed(3)})`,
     sharedWorksCount,
     collaborationScore: score,
     firstYear,
@@ -63,13 +46,14 @@ function edgeStyle(
   }
 }
 
-function addLevelData(graph: Graph, data: LevelData, level: Level): void {
+export function buildGraph(data: LevelData): Graph {
+  const graph = new Graph({ type: 'undirected', multi: false })
   for (const node of data.nodes) {
     const attrs: Record<string, unknown> = {
       label: node.name,
       x: node.x ?? 0,
       y: node.y ?? 0,
-      size: sizeFromAttrs(node as unknown as Record<string, unknown>, level),
+      size: sizeFromAttrs(node as unknown as Record<string, unknown>),
       color: colorFromAttrs(node as unknown as Record<string, unknown>),
       name: node.name,
       nameCn: node.nameCn,
@@ -101,7 +85,6 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
           edgeStyle(
             edge.sharedWorksCount,
             edge.collaborationScore,
-            level,
             edge.firstYear,
             edge.lastYear,
             edge.expandedFrom,
@@ -110,10 +93,5 @@ function addLevelData(graph: Graph, data: LevelData, level: Level): void {
       }
     }
   }
-}
-
-export function buildGraph(data: LevelData, level: Level = 'l0'): Graph {
-  const graph = new Graph({ type: 'undirected', multi: false })
-  addLevelData(graph, data, level)
   return graph
 }
