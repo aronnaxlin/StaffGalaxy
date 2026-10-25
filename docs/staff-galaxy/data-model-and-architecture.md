@@ -2,189 +2,53 @@
 
 ## Architecture Summary
 
-Staff Galaxy uses a live API architecture, not static JSON export:
+Staff Galaxy uses a live API architecture over a Neo4j knowledge graph, not static JSON export:
 
 ```text
-Bangumi Archive files
-  → Python ingest pipeline
-  → DuckDB database
-  → FastAPI backend (staff_galaxy/api.py)
+Bangumi Archive zip
+  → Python ingest pipeline (streams jsonlines from the zip)
+  → Neo4j 5 knowledge graph
+  → FastAPI backend (staff_galaxy/api.py, Cypher)
   → React + Cosmos.gl frontend
 ```
 
 The frontend queries the API directly. There is no intermediate static file export layer.
 
-## Raw Fact Model
+> The DuckDB table model this document used to describe (`subjects`, `credits`,
+> `person_collaboration_edges`, `visible_person_edges`, `graph_nodes`, …) was
+> replaced by the graph below on the `neo4j-migration` branch.
 
-### subjects
+## Knowledge Graph Model
 
-```sql
-CREATE TABLE subjects (
-  id INTEGER PRIMARY KEY,
-  type INTEGER,
-  name TEXT,
-  name_cn TEXT,
-  date TEXT,
-  year INTEGER,
-  platform INTEGER,
-  score DOUBLE,
-  rank INTEGER
-);
+The authoritative schema is the module docstring of `staff_galaxy/graph_db.py`;
+`AGENTS.md` "Graph Schema" summarizes it.
+
+```text
+(:Person)-[:CREDITED {position_id, position_cn, normalized_role, role_tier, role_weight, appear_eps}]->(:Anime)
+(:Person)-[:VOICED {subject_id}]->(:Character)-[:APPEARS_IN]->(:Anime)
+(:Person)-[:HAS_SEARCH_TERM]->(:SearchTerm {norm, compact, kind})
+(:Position {position_id, cn, en, jp, normalized_role, role_tier, role_weight})
+(:DataSnapshot {snapshot_id: 'current', archive_name, archive_created_at, ...})
 ```
 
-Only `type = 2` (anime) is used for STAFF graph analysis.
-
-### persons
-
-```sql
-CREATE TABLE persons (
-  id INTEGER PRIMARY KEY,
-  name TEXT,           -- Japanese kanji (no name_cn column)
-  type INTEGER,        -- 1=individual, 2=company, 3=group
-  infobox TEXT,        -- raw Archive infobox for aliases/romanization
-  career_json TEXT,
-  summary TEXT
-);
-```
-
-Only `type = 1` (real individuals) are default graph nodes. **No `name_cn` column exists**. Search and display-name variants use the raw Archive `infobox` plus CJK variant mapping to bridge simplified Chinese, traditional Chinese when Archive provides it, aliases, kana, and romanized names without inventing translations. API responses expose `name`, `nameCn` extracted from `简体中文名`, and `nameTw` extracted from `繁体中文名` / `繁體中文名` when present.
-
-### credits
-
-```sql
-CREATE TABLE credits (
-  subject_id INTEGER,
-  person_id INTEGER,
-  position_id INTEGER,
-  raw_position TEXT,
-  position_cn TEXT,
-  position_en TEXT,
-  position_jp TEXT,
-  normalized_role TEXT,
-  role_tier TEXT,       -- S, A, B, C, D, E, or F
-  role_weight DOUBLE,   -- 50.0 to 0.3, exponential scale
-  appear_eps TEXT
-);
-```
-
-`credits` is the central fact table. All person-person edges are derived from it. Positions are mapped from Bangumi numeric IDs via `staff_positions`.
-
-### data_snapshots
-
-```sql
-CREATE TABLE data_snapshots (
-  snapshot_id TEXT PRIMARY KEY,
-  archive_name TEXT,
-  archive_created_at TEXT,
-  archive_size_bytes BIGINT,
-  built_at TIMESTAMP,
-  source_url TEXT
-);
-```
-
-The full rebuild records the current Bangumi Archive zip as `snapshot_id = 'current'`. Existing local databases can be backfilled with `scripts/migrate_data_snapshot.py`. The API exposes this metadata through `/api/manifest`, person detail/credits responses, and collaboration evidence responses so graph facts can be tied back to a concrete Archive snapshot.
-
-### person_search_terms
-
-```sql
-CREATE TABLE person_search_terms (
-  person_id INTEGER,
-  term TEXT,
-  term_norm TEXT,
-  term_compact TEXT,
-  term_kind TEXT
-);
-```
-
-`person_search_terms` is rebuilt from `persons.name` and selected real Archive infobox fields such as `简体中文名`, `繁体中文名`, `繁體中文名`, `英文名`, `日文名`, `纯假名`, `罗马字`, and aliases. The API searches normalized and compact forms with multi-term AND matching.
-
-### staff_positions
-
-```sql
-CREATE TABLE staff_positions (
-  position_id INTEGER PRIMARY KEY,
-  cn TEXT,
-  en TEXT,
-  jp TEXT,
-  normalized_role TEXT,
-  role_tier TEXT,
-  role_weight DOUBLE
-);
-```
-
-163 position definitions. Tier and weight assignments live in `staff_galaxy/roles.py`.
+Only `subject.type = 2` (anime) subjects and `person.type = 1` (real individuals)
+are loaded. Credits are de-duplicated on (subject, person, position, appear_eps);
+positions missing from `subject_staffs.yml` get `unknown_position_<id>`, tier D,
+weight 0.25.
 
 ## Visible Graph Model
 
-### person_collaboration_edges
-
-```sql
-CREATE TABLE person_collaboration_edges (
-  source_person_id INTEGER,
-  target_person_id INTEGER,
-  shared_works_count INTEGER,
-  collaboration_score DOUBLE,
-  first_year INTEGER,
-  last_year INTEGER,
-  selection_reason TEXT
-);
-```
-
-This is the complete staff collaboration graph derived from all anime staff
-credits, not the renderer backbone. It includes lower-tier staff collaborations
-that may be hidden from the default galaxy. Direct comparison and shortest-path
-queries use this table so hidden real relationships remain queryable.
-
-Current snapshot:
-
-- 26,017,438 complete staff edges.
-- 41,472,689 shared-work evidence pairs.
-- `selection_reason = 'all_staff'`.
-
-### visible_person_edges
-
-```sql
-CREATE TABLE visible_person_edges (
-  source_person_id INTEGER,
-  target_person_id INTEGER,
-  shared_works_count INTEGER,
-  collaboration_score DOUBLE,
-  first_year INTEGER,
-  last_year INTEGER,
-  role_layer TEXT,
-  top_neighbor_rank INTEGER,
-  selection_reason TEXT
-);
-```
-
-Built from credits where `role_weight >= 12.0` (S+A+B tiers). Filters:
+The galaxy is a derived layer written back into the same graph:
 
 ```text
-sharedWorksCount >= 2 OR top 10 strongest neighbors per endpoint
+(:Person:GalaxyNode {x, y, community_id, visible_degree, visible_weighted_degree, node_size, layout_method})
+(:Person)-[:COLLAB {shared_works_count, collaboration_score, first_year, last_year,
+                    top_neighbor_rank, selection_reason}]->(:Person)   // source id < target id
 ```
 
-Current snapshot: ~518,581 edges across ~21,006 people.
-
-`visible_person_edges` is a readability and performance layer. It is not the
-truth source for collaboration existence.
-
-### graph_nodes
-
-```sql
-CREATE TABLE graph_nodes (
-  person_id INTEGER PRIMARY KEY,
-  community_id INTEGER,
-  x DOUBLE,
-  y DOUBLE,
-  visible_degree INTEGER,
-  visible_weighted_degree DOUBLE,
-  node_size DOUBLE,
-  role_layer TEXT,
-  layout_method TEXT
-);
-```
-
-Coordinates use `deterministic_spiral_v1` layout. Node size is log-scaled against `visible_weighted_degree`.
+The complete collaboration graph (~34M person pairs on the 2026-10 dump) is not
+materialized. Any pair's evidence and all shortest paths are derived from
+`CREDITED` at query time.
 
 ## Role Tier System
 
@@ -221,12 +85,46 @@ The geometric mean ensures both roles must be significant for a high score:
 
 ## Graph Backbone Selection
 
-The graph backbone includes anyone with at least one credit at `role_weight >= 12.0` (S+A+B tiers). Edges are included if:
+Galaxy members are everyone with at least one credit at `role_weight >= 12.0`
+(S+A+B tiers). Candidate edges are all co-occurrences inside that layer
+(1,646,587 pairs on `dump-2026-10-20`). The backbone keeps an edge if:
 
-1. `sharedWorksCount >= 2`, OR
-2. The edge is among the top 10 strongest per endpoint
+1. **It is statistically validated.** The person–anime layer is fitted with the
+   Bipartite Configuration Model (BiCM; Saracco et al., *New J. Phys.* 19,
+   2017), the maximum-entropy random bipartite graph that reproduces every
+   person's work count and every anime's staff count. A pair's co-occurrence
+   count is tested against it (Poisson approximation of the Poisson-binomial
+   tail), with Benjamini–Hochberg FDR control at q = 0.05 over **all** person
+   pairs. → `selection_reason = 'bicm_significant'`, or
+2. **It is in the maximum spanning forest** of the candidate graph (by
+   collaboration score), so people with too few works for significance still
+   attach through their strongest tie. → `selection_reason = 'spanning_forest'`.
 
-This replaced the old "Tier A only" approach, broadening the graph while maintaining readable density.
+Each `COLLAB` edge stores `expected_shared_works` (BiCM expectation) and
+`significance` (−log10 p). Result on `dump-2026-10-20`: 107,489 edges, of which
+95,050 significant (covering 13,561 people) and 12,439 spanning-forest.
+
+Why BiCM: the graph is a projection of a bipartite graph, where co-occurrence is
+driven by degree heterogeneity on **both** sides (a person with 300 works vs. 1;
+a 700-staff production vs. a 5-person short). Given only the two degree
+sequences, BiCM is the maximum-entropy (least-biased) null model. Measured on
+`dump-2026-10-20` with `scripts/compare_backbones.py`:
+
+| Method | Edges kept | People covered | Modularity | Single-work edges | Note |
+|---|---:|---:|---:|---:|---|
+| Previous rule (shared ≥ 2 or top 10, ranked as 10 + 10) | 589,011 | 22,840 | 0.463 | 29.2% | Heuristic thresholds, no null model |
+| Disparity filter, α = 0.05 (Serrano et al. 2009) | 56,985 | 9,801 | 0.626 | 0.1% | Every co-worker on a work gets the same weight, so few edges stand out |
+| Hypergeometric SVN, FDR 0.05 (Tumminello et al. 2011) | 160,990 | 14,441 | 0.645 | 0.0% | Null constrains person degrees only; ignores anime size |
+| Noise-corrected, δ = 1.64 (Coscia & Neffke 2017) | 1,425,742 | 22,840 | 0.417 | 73.7% | Per-edge threshold, no multiple-testing correction |
+| BiCM, FDR 0.05 | 95,050 | 13,561 | 0.751 | 0.0% | Constrains both degree sequences |
+| **BiCM, FDR 0.05 + max spanning forest (shipped)** | **107,489** | **22,840** | **0.755** | 8.5% | Forest edges labelled `spanning_forest` |
+
+All FDR methods count every person pair as a hypothesis (~270M), not only
+observed pairs. Reproduce with:
+
+```bash
+.venv/bin/python scripts/compare_backbones.py
+```
 
 ## API Architecture
 
@@ -234,22 +132,22 @@ This replaced the old "Tier A only" approach, broadening the graph while maintai
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/graph/{level}/nodes` | GET | Galaxy nodes (global, l0, l1) |
-| `/api/graph/{level}/edges` | GET | Galaxy edges with sharedWorksCount, collaborationScore |
+| `/api/graph/buffers` | GET | Binary galaxy geometry (positions, sizes, community, edges) |
+| `/api/graph/meta` | GET | Galaxy node metadata (names, degrees) |
 | `/api/person/{id}/galaxy` | GET | Person-centered galaxy with data-driven layout |
 | `/api/person/{id}/detail` | GET | Person summary stats, top roles, and recent works |
 | `/api/person/{id}/credits` | GET | Complete row-level anime credit history with raw roles |
 | `/api/collaboration/{a}/{b}` | GET | Shared works with per-person roles |
-| `/api/path/{a}/{b}` | GET | BFS shortest paths between two people |
+| `/api/path/{a}/{b}` | GET | Cypher `ALL SHORTEST` paths between two people |
 | `/api/search/persons` | GET | Search with aliases, CJK variants, romanization, and bounded fuzzy fallback |
-| `/api/manifest` | GET | DB path, snapshot metadata, level counts |
+| `/api/manifest` | GET | Graph URI, snapshot metadata, galaxy counts |
 
 Endpoint data is intentionally layered:
 
-- Galaxy endpoints use `visible_person_edges` and `graph_nodes`.
-- Person detail and credit endpoints use complete `credits` facts.
-- Collaboration and path endpoints use `person_collaboration_edges` plus
-  evidence joins back to `credits` and `subjects`.
+- Galaxy endpoints use `:GalaxyNode` and `COLLAB`.
+- Person detail and credit endpoints use complete `CREDITED` facts.
+- Collaboration and path endpoints traverse complete `CREDITED` relationships
+  through `:Anime` nodes.
 - Manifest and evidence-bearing endpoints include the current Archive snapshot.
 
 ### Search Design
@@ -258,8 +156,8 @@ Single-input unified search that auto-detects:
 - **Numeric ID**: Exact match + ILIKE fallback
 - **Text query**: Multi-term AND matching with CJK variant expansion per term
 - **CJK variants**: ~150 simplified→Japanese kanji pairs, Cartesian product capped at 12 variants
-- **Archive aliases**: Selected `infobox` fields and aliases are normalized into `person_search_terms`
-- **Fuzzy fallback**: If exact/prefix/contains search leaves room, bounded typo matching runs against compact indexed terms. ASCII/romanized typos use DuckDB `damerau_levenshtein`; CJK/kana typos use a bounded Unicode edit-distance pass over same-prefix, similar-length candidates.
+- **Archive aliases**: Selected `infobox` fields and aliases are normalized into `:SearchTerm` nodes
+- **Fuzzy fallback**: If exact/prefix/contains search leaves room, bounded typo matching runs against compact indexed terms. Same-prefix, similar-length candidates are fetched with Cypher and scored in Python with a bounded optimal-string-alignment edit distance (adjacent transpositions cost 1), for both romanized and CJK/kana input.
 
 ### Display Names
 
@@ -272,10 +170,15 @@ When simplified Chinese is primary and the original differs, panels and search p
 
 ### Path Finding
 
-BFS with multi-parent tracking returns all shortest paths. Each path includes node IDs and edge metadata (sharedWorksCount per step). Frontend renders as depth-layered SVG constellation.
+Cypher `ALL SHORTEST (a)-[:CREDITED]-{1,2·maxDepth}(b)` enumerates shortest
+paths over the bipartite Person–Anime graph (one collaboration hop is two
+relationships). Paths that differ only in the linking anime collapse to one
+person sequence; sequences are ranked by weakest step, then total score. Each
+path includes node IDs and per-step sharedWorksCount / collaborationScore.
+Frontend renders as depth-layered SVG constellation.
 
-The backend BFS expands `person_collaboration_edges`, not `visible_person_edges`.
-This preserves hidden low-tier relationships for path and compare workflows.
+Paths traverse complete `CREDITED`, not `COLLAB`. This preserves hidden
+low-tier relationships for path and compare workflows.
 
 ### Direct Comparison
 
@@ -292,27 +195,23 @@ Person-panel collaborator rows can open this route directly.
 
 ## Detail Views
 
-```sql
-credit_details          -- credits + subject name + person name
-cast_details            -- person_characters expanded
-anime_participation_details  -- UNION of staff and cast
-person_role_counts      -- credit count per person per role
-person_anime_stats      -- per-person summary with tier breakdowns (S/A/B/C/D/EF)
-visible_edge_details    -- visible edges + both person names
-```
+The SQL views of the DuckDB era are gone; each detail endpoint aggregates
+`CREDITED` directly in Cypher (per-person tier breakdowns, role counts, recent
+works, raw credit rows).
 
 ## Frontend Data Flow
 
 ```text
 App.tsx (mount)
-  → loadLevel('global')  →  GET /api/graph/global/nodes + edges
-  → buildGraph()         →  Graphology graph instance
+  → loadGlobalGraph()    →  GET /api/graph/buffers + /api/graph/meta
+  → buildGlobalPayload() →  typed arrays
   → CosmosGalaxyView     →  WebGL render
 
-User clicks node
-  → loadPersonGalaxy(id) →  GET /api/person/{id}/galaxy
-  → buildGraph()         →  replace Graphology instance for local galaxy
-  → NodePanel opens      →  summary, complete credits, neighbor list
+User clicks node (or search / /person/{id})
+  → URL /person/{id}; the galaxy stays loaded and focuses the person in place
+  → loadPersonGalaxy(id)        → GET /api/person/{id}/galaxy (sidebar collaborator list)
+  → loadPersonKnowledgeGraph(id) → GET /api/person/{id}/knowledge-graph
+  → PersonSidebar        →  知识图谱 tab (react-force-graph + SPO triples), 合作者, 履历
 
 User expands collaboration
   → loadCollaborationDetail(a, b) → GET /api/collaboration/{a}/{b}
@@ -359,28 +258,21 @@ python3 -m venv .venv
 .venv/bin/python -m staff_galaxy.cli
 ```
 
-The full rebuild:
+The full rebuild (requires `docker compose up -d neo4j` and `.env` credentials):
 
-1. Recreates the DuckDB schema.
-2. Ingests Bangumi Archive subjects, persons, positions, staff credits, and cast.
-3. Rebuilds complete `person_collaboration_edges`.
-4. Rebuilds sparse `visible_person_edges`.
-5. Rebuilds `graph_nodes`.
-6. Rebuilds `person_search_terms`.
-7. Records the current `data_snapshots` row.
-8. Writes `reports/data-audit.md`.
+1. Wipes the Neo4j graph and creates constraints and indexes.
+2. Streams the Archive zip and writes `Position`, `Anime`, `Person`, `CREDITED`,
+   `Character`, `VOICED`, and `APPEARS_IN`.
+3. Rebuilds the derived layer: sparse `COLLAB` edges, `GalaxyNode` membership
+   and sizes, the hierarchical Leiden layout, and `SearchTerm` nodes.
+4. Records the current `DataSnapshot` node.
+5. Writes `reports/data-audit.md`.
 
-Focused migrations for an existing local DB:
+Rebuild only the derived layer (after role weight or layout changes):
 
 ```bash
-.venv/bin/python scripts/migrate_role_weights.py
-.venv/bin/python scripts/migrate_search_index.py
-.venv/bin/python scripts/migrate_data_snapshot.py
+.venv/bin/python -m staff_galaxy.cli --derived-only
 ```
-
-`migrate_role_weights.py` backs up the local DuckDB file before rebuilding
-derived role weights, complete edges, visible edges, graph nodes, search terms,
-and indexes.
 
 ## Local Runtime Workflow
 
