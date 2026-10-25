@@ -1,14 +1,16 @@
 [project]
 name = "animedna"
 version = "0.1.0"
-description = "Staff Galaxy data tooling for Bangumi Archive anime staff collaboration graphs."
+description = "Staff Galaxy: a Neo4j knowledge graph of Bangumi Archive anime staff collaboration."
 requires-python = ">=3.12"
 dependencies = [
-  "duckdb>=1.1.0",
   "fastapi>=0.115.0",
   "leidenalg>=0.10.0",
+  "neo4j>=5.26.0",
+  "neo4j-rust-ext>=5.26.0",
   "numpy>=2.0.0",
   "python-igraph>=0.11.0",
+  "scipy>=1.11.0",
   "PyYAML>=6.0.0",
   "uvicorn[standard]>=0.32.0",
 ]

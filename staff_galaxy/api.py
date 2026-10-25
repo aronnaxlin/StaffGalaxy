@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import math
-from collections import defaultdict
-from pathlib import Path
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-import duckdb
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from neo4j import Driver
+from neo4j.exceptions import AuthError, ServiceUnavailable
 
 from .graph_buffers import VERSION as BUFFERS_VERSION, build_graph_buffers
+from .graph_db import connection_uri, get_driver, latest_data_snapshot, read, read_one
 from .search_index import (
     compact_search_text,
     extract_person_name_cn,
@@ -22,69 +25,22 @@ from .search_index import (
 )
 
 
-DEFAULT_DB_PATH = Path("data/processed/staff_galaxy.duckdb")
-
-
-def get_db_path() -> Path:
-    return Path(os.environ.get("STAFF_GALAXY_DB", DEFAULT_DB_PATH))
-
-
-def connect_readonly() -> duckdb.DuckDBPyConnection:
-    path = get_db_path()
-    if not path.exists():
-        raise HTTPException(
-            status_code=503,
-            detail=f"DuckDB database not found: {path}. Run scripts/audit_data.py first.",
-        )
-    return duckdb.connect(str(path), read_only=True)
+def graph() -> Driver:
+    try:
+        return get_driver()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def row_dicts(rows: list[tuple[Any, ...]], columns: list[str]) -> list[dict[str, Any]]:
     return [dict(zip(columns, row, strict=True)) for row in rows]
 
 
-def _latest_data_snapshot(conn: duckdb.DuckDBPyConnection) -> dict[str, Any] | None:
-    exists = conn.execute(
-        """
-        SELECT COUNT(*)
-        FROM information_schema.tables
-        WHERE table_name = 'data_snapshots'
-        """
-    ).fetchone()[0]
-    if not exists:
-        return None
-
-    row = conn.execute(
-        """
-        SELECT
-          snapshot_id,
-          archive_name,
-          archive_created_at,
-          archive_size_bytes,
-          built_at::TEXT,
-          source_url
-        FROM data_snapshots
-        ORDER BY built_at DESC
-        LIMIT 1
-        """
-    ).fetchone()
-    if row is None:
-        return None
+def _source_payload(driver: Driver) -> dict[str, Any]:
     return {
-        "snapshotId": row[0],
-        "archiveName": row[1],
-        "archiveCreatedAt": row[2],
-        "archiveSizeBytes": int(row[3] or 0),
-        "builtAt": row[4],
-        "sourceUrl": row[5],
-    }
-
-
-def _source_payload(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
-    return {
-        "label": "Bangumi Archive local DuckDB",
-        "dbPath": str(get_db_path()),
-        "snapshot": _latest_data_snapshot(conn),
+        "label": "Bangumi Archive · Neo4j",
+        "dbPath": connection_uri(),
+        "snapshot": latest_data_snapshot(driver),
     }
 
 
@@ -97,6 +53,10 @@ def _person_payload(person_id: int | str, name: str, infobox: str = "") -> dict[
     }
 
 
+def _join_roles(roles: list[str]) -> str:
+    return "、".join(sorted(role for role in roles if role is not None))
+
+
 GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))
 
 
@@ -106,7 +66,22 @@ def _hash_fraction(s: str) -> float:
     return int(h[:8], 16) / 0xFFFF_FFFF
 
 
-app = FastAPI(title="Staff Galaxy API")
+def _warm_graph_buffers() -> None:
+    """Build the galaxy buffers once at startup so the first visitor gets a cache hit."""
+    try:
+        driver = get_driver()
+        _graph_buffers(driver, _graph_cache_key(driver))
+    except Exception as exc:  # The API still serves (and reports 503s) without Neo4j.
+        print(f"Graph buffer warm-up skipped: {exc}", flush=True)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    threading.Thread(target=_warm_graph_buffers, name="warm-graph-buffers", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Staff Galaxy API", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -119,47 +94,59 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
-# In-memory buffers cache, keyed by (db path, snapshot, layout). A new Archive
+@app.exception_handler(ServiceUnavailable)
+@app.exception_handler(AuthError)
+async def _neo4j_unavailable(_: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"Neo4j unavailable at {connection_uri()}: {exc}"},
+    )
+
+
+# In-memory buffers cache, keyed by (graph URI, snapshot, layout). A new Archive
 # snapshot or layout rebuild changes the key, so stale payloads are never served.
 _graph_buffers_cache: dict[tuple[Any, ...], Any] = {}
 
 
-def _graph_geometry_row(conn: duckdb.DuckDBPyConnection) -> tuple[Any, ...]:
-    return conn.execute(
+def _graph_geometry_row(driver: Driver) -> dict[str, Any]:
+    return read_one(
+        driver,
         """
-        SELECT
-          COUNT(*),
-          COALESCE(MAX(layout_method), 'unknown'),
-          -- Position checksum: changes when a layout migration rewrites x/y
-          -- even if counts and layout_method stay the same.
-          COALESCE(ROUND(SUM(x * x + y * y), 2), 0.0)
-        FROM graph_nodes
-        """
-    ).fetchone()
+        MATCH (g:GalaxyNode)
+        RETURN count(g) AS nodes,
+               coalesce(max(g.layout_method), 'unknown') AS layout_method,
+               // Position checksum: changes when a layout rebuild rewrites x/y
+               // even if counts and layout_method stay the same.
+               round(coalesce(sum(g.x * g.x + g.y * g.y), 0.0), 2) AS fingerprint
+        """,
+    ) or {"nodes": 0, "layout_method": "unknown", "fingerprint": 0.0}
 
 
-def _graph_cache_key(conn: duckdb.DuckDBPyConnection) -> tuple[Any, ...]:
-    snapshot = _latest_data_snapshot(conn) or {}
-    row = _graph_geometry_row(conn)
-    edge_count = conn.execute("SELECT COUNT(*) FROM visible_person_edges").fetchone()[0]
+def _visible_edge_count(driver: Driver) -> int:
+    row = read_one(driver, "MATCH ()-[e:COLLAB]->() RETURN count(e) AS edges")
+    return int(row["edges"]) if row else 0
+
+
+def _graph_cache_key(driver: Driver) -> tuple[Any, ...]:
+    snapshot = latest_data_snapshot(driver) or {}
+    row = _graph_geometry_row(driver)
     return (
-        str(get_db_path()),
+        connection_uri(),
         snapshot.get("archiveName"),
         snapshot.get("archiveCreatedAt"),
-        row[1],
-        int(row[0]),
-        int(edge_count),
-        float(row[2]),
+        row["layout_method"],
+        int(row["nodes"]),
+        _visible_edge_count(driver),
+        float(row["fingerprint"]),
         BUFFERS_VERSION,
     )
 
 
-def _graph_buffers(conn: duckdb.DuckDBPyConnection) -> Any:
-    key = _graph_cache_key(conn)
+def _graph_buffers(driver: Driver, key: tuple[Any, ...]) -> Any:
     cached = _graph_buffers_cache.get(key)
     if cached is None:
         _graph_buffers_cache.clear()
-        cached = build_graph_buffers(conn)
+        cached = build_graph_buffers(driver)
         _graph_buffers_cache[key] = cached
     return cached
 
@@ -176,54 +163,42 @@ def _immutable_headers(cache_key: tuple[Any, ...]) -> dict[str, str]:
 
 @app.get("/api/manifest")
 def manifest() -> dict[str, Any]:
-    with connect_readonly() as conn:
-        graph_row = _graph_geometry_row(conn)
-        edge_count = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM visible_person_edges e
-            JOIN graph_nodes s ON e.source_person_id = s.person_id
-            JOIN graph_nodes t ON e.target_person_id = t.person_id
-            """
-        ).fetchone()[0]
-        snapshot = _latest_data_snapshot(conn)
-
+    driver = graph()
+    graph_row = _graph_geometry_row(driver)
     return {
         "version": 2,
-        "db_path": str(get_db_path()),
-        "snapshot": snapshot,
+        "db_path": connection_uri(),
+        "snapshot": latest_data_snapshot(driver),
         "graph": {
-            "nodes": int(graph_row[0]),
-            "edges": int(edge_count),
-            "layoutMethod": str(graph_row[1]),
+            "nodes": int(graph_row["nodes"]),
+            "edges": _visible_edge_count(driver),
+            "layoutMethod": str(graph_row["layout_method"]),
             # Frontend cache-buster for the immutable buffers/meta URLs.
-            "geometryFingerprint": float(graph_row[2]),
+            "geometryFingerprint": float(graph_row["fingerprint"]),
         },
     }
 
 
 @app.get("/api/graph/buffers")
 def graph_buffers(request: Request) -> Response:
-    with connect_readonly() as conn:
-        cache_key = _graph_cache_key(conn)
-        buffers = _graph_buffers(conn)
-
+    driver = graph()
+    cache_key = _graph_cache_key(driver)
     headers = _immutable_headers(cache_key)
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
+    buffers = _graph_buffers(driver, cache_key)
     return Response(content=buffers.payload, media_type="application/octet-stream", headers=headers)
 
 
 @app.get("/api/graph/meta")
 def graph_meta(request: Request) -> Response:
-    with connect_readonly() as conn:
-        cache_key = _graph_cache_key(conn)
-        buffers = _graph_buffers(conn)
-        snapshot = _latest_data_snapshot(conn)
-
+    driver = graph()
+    cache_key = _graph_cache_key(driver)
     headers = _immutable_headers(cache_key)
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
+    buffers = _graph_buffers(driver, cache_key)
+    snapshot = latest_data_snapshot(driver)
     body = json.dumps({**buffers.meta, "snapshot": snapshot}, ensure_ascii=False)
     return Response(content=body, media_type="application/json", headers=headers)
 
@@ -234,104 +209,78 @@ def person_galaxy(
     limit: Annotated[int, Query(ge=1, le=600)] = 220,
     min_shared: Annotated[int, Query(ge=1, le=1000)] = 1,
 ) -> dict[str, Any]:
-    with connect_readonly() as conn:
-        center = conn.execute(
-            """
-            SELECT
-              g.person_id::TEXT AS id,
-              p.name,
-              p.infobox,
-              g.visible_degree AS degree,
-              g.visible_weighted_degree,
-              g.node_size,
-              g.role_layer
-            FROM graph_nodes g
-            JOIN persons p ON g.person_id = p.id
-            WHERE g.person_id = ?
-            """,
-            [person_id],
-        ).fetchone()
-        if center is None:
-            raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
+    driver = graph()
+    center = read_one(
+        driver,
+        """
+        MATCH (g:GalaxyNode {id: $person_id})
+        RETURN g.name AS name, g.infobox AS infobox, g.visible_degree AS degree,
+               g.visible_weighted_degree AS weighted_degree, g.node_size AS node_size,
+               g.role_layer AS role_layer
+        """,
+        person_id=person_id,
+    )
+    if center is None:
+        raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
 
-        neighbors = conn.execute(
+    neighbors = read(
+        driver,
+        """
+        MATCH (:GalaxyNode {id: $person_id})-[e:COLLAB]-(n:GalaxyNode)
+        WHERE e.shared_works_count >= $min_shared
+        RETURN n.id AS id, n.name AS name, n.infobox AS infobox,
+               n.visible_degree AS degree, n.visible_weighted_degree AS weighted_degree,
+               n.node_size AS node_size, n.role_layer AS role_layer,
+               e.shared_works_count AS shared, e.collaboration_score AS score,
+               e.first_year AS first_year, e.last_year AS last_year,
+               e.selection_reason AS selection_reason
+        ORDER BY shared DESC, score DESC, id
+        LIMIT $limit
+        """,
+        person_id=person_id,
+        min_shared=min_shared,
+        limit=limit,
+    )
+    # Highest-weight tier each neighbor held on works shared with the center.
+    neighbor_tiers = {
+        row["id"]: row["tier"]
+        for row in read(
+            driver,
             """
-            WITH incident AS (
-              SELECT
-                CASE
-                  WHEN e.source_person_id = ? THEN e.target_person_id
-                  ELSE e.source_person_id
-                END AS neighbor_id,
-                e.shared_works_count,
-                e.collaboration_score,
-                e.first_year,
-                e.last_year,
-                e.selection_reason
-              FROM visible_person_edges e
-              WHERE (e.source_person_id = ? OR e.target_person_id = ?)
-                AND e.shared_works_count >= ?
-              ORDER BY e.shared_works_count DESC, e.collaboration_score DESC, neighbor_id
-              LIMIT ?
-            ),
-            neighbor_roles AS (
-              SELECT
-                i.neighbor_id,
-                ARG_MAX(nc.role_tier, nc.role_weight) AS neighbor_role_tier
-              FROM incident i
-              JOIN credits center_credit
-                ON center_credit.person_id = ?
-              JOIN credits nc
-                ON nc.subject_id = center_credit.subject_id
-               AND nc.person_id = i.neighbor_id
-              GROUP BY i.neighbor_id
-            )
-            SELECT
-              i.neighbor_id::TEXT AS id,
-              p.name,
-              p.infobox,
-              g.visible_degree AS degree,
-              g.visible_weighted_degree,
-              g.node_size,
-              g.role_layer,
-              i.shared_works_count,
-              i.collaboration_score,
-              i.first_year,
-              i.last_year,
-              i.selection_reason,
-              nr.neighbor_role_tier
-            FROM incident i
-            JOIN graph_nodes g ON g.person_id = i.neighbor_id
-            JOIN persons p ON p.id = i.neighbor_id
-            LEFT JOIN neighbor_roles nr ON nr.neighbor_id = i.neighbor_id
-            ORDER BY i.shared_works_count DESC, i.collaboration_score DESC, i.neighbor_id
+            MATCH (:Person {id: $person_id})-[:CREDITED]->(:Anime)<-[r:CREDITED]-(n:Person)
+            WHERE n.id IN $neighbor_ids
+            WITH n.id AS id, r ORDER BY r.role_weight DESC
+            RETURN id, head(collect(r.role_tier)) AS tier
             """,
-            [person_id, person_id, person_id, min_shared, limit, person_id],
-        ).fetchall()
+            person_id=person_id,
+            neighbor_ids=[row["id"] for row in neighbors],
+        )
+    }
 
-    center_id = str(center[0])
+    center_id = str(person_id)
     nodes = [
         {
             "id": center_id,
-            "name": center[1],
-            "nameCn": extract_person_name_cn(center[2] or ""),
-            "nameTw": extract_person_name_tw(center[2] or ""),
+            "name": center["name"],
+            "nameCn": extract_person_name_cn(center["infobox"] or ""),
+            "nameTw": extract_person_name_tw(center["infobox"] or ""),
             "x": 0,
             "y": 0,
-            "degree": center[3],
-            "visibleWeightedDegree": center[4],
-            "nodeSize": center[5],
-            "roleLayer": center[6],
+            "degree": center["degree"],
+            "visibleWeightedDegree": center["weighted_degree"],
+            "nodeSize": center["node_size"],
+            "roleLayer": center["role_layer"],
             "isCenter": True,
         }
     ]
     edges = []
 
-    max_shared = neighbors[0][7] if neighbors else 1
+    max_shared = neighbors[0]["shared"] if neighbors else 1
 
     for index, row in enumerate(neighbors):
-        node_id = str(row[0])
+        node_id = str(row["id"])
         seed = _hash_fraction(node_id)
-        shared = row[7]
+        shared = row["shared"]
 
         # Radius driven by collaboration strength: stronger → closer to center.
         # Map shared_works_count to [80, 600] — inner ring for top collaborators.
@@ -352,21 +301,21 @@ def person_galaxy(
         nodes.append(
             {
                 "id": node_id,
-                "name": row[1],
-                "nameCn": extract_person_name_cn(row[2] or ""),
-                "nameTw": extract_person_name_tw(row[2] or ""),
+                "name": row["name"],
+                "nameCn": extract_person_name_cn(row["infobox"] or ""),
+                "nameTw": extract_person_name_tw(row["infobox"] or ""),
                 "x": round(radius * math.cos(angle), 3),
                 "y": round(radius * math.sin(angle), 3),
-                "degree": row[3],
-                "visibleWeightedDegree": row[4],
-                "nodeSize": row[5],
-                "roleLayer": row[6],
+                "degree": row["degree"],
+                "visibleWeightedDegree": row["weighted_degree"],
+                "nodeSize": row["node_size"],
+                "roleLayer": row["role_layer"],
                 "isCenter": False,
                 "sharedWorksCount": shared,
-                "collaborationScore": round(row[8], 2),
-                "firstYear": row[9],
-                "lastYear": row[10],
-                "neighborRoleTier": row[12],
+                "collaborationScore": round(row["score"], 2),
+                "firstYear": row["first_year"],
+                "lastYear": row["last_year"],
+                "neighborRoleTier": neighbor_tiers.get(row["id"]),
             }
         )
         edges.append(
@@ -374,10 +323,10 @@ def person_galaxy(
                 "source": center_id,
                 "target": node_id,
                 "w": shared,
-                "collaborationScore": row[8],
-                "firstYear": row[9],
-                "lastYear": row[10],
-                "selectionReason": row[11],
+                "collaborationScore": row["score"],
+                "firstYear": row["first_year"],
+                "lastYear": row["last_year"],
+                "selectionReason": row["selection_reason"],
             }
         )
 
@@ -391,120 +340,106 @@ def person_detail(
     recent_limit: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> dict[str, Any]:
     """Person stats, top roles, and recent anime credits for the detail panel."""
-    with connect_readonly() as conn:
-        person = conn.execute(
-            """
-            SELECT
-              p.id::TEXT AS id,
-              p.name,
-              p.infobox,
-              p.career_json,
-              p.summary,
-              s.anime_credit_count,
-              s.anime_subject_count,
-              s.tier_s_credit_count,
-              s.tier_a_credit_count,
-              s.tier_b_credit_count,
-              s.tier_c_credit_count,
-              s.tier_d_credit_count,
-              s.tier_ef_credit_count,
-              s.first_credit_year,
-              s.latest_credit_year
-            FROM persons p
-            LEFT JOIN person_anime_stats s ON s.person_id = p.id
-            WHERE p.id = ?
-            """,
-            [person_id],
-        ).fetchone()
+    driver = graph()
+    person = read_one(
+        driver,
+        """
+        MATCH (p:Person {id: $person_id})
+        OPTIONAL MATCH (p)-[c:CREDITED]->(s:Anime)
+        RETURN p.name AS name, p.infobox AS infobox, p.career_json AS career_json,
+               p.summary AS summary,
+               count(c) AS credit_count,
+               count(DISTINCT s) AS subject_count,
+               count(CASE WHEN c.role_tier = 'S' THEN 1 END) AS tier_s,
+               count(CASE WHEN c.role_tier = 'A' THEN 1 END) AS tier_a,
+               count(CASE WHEN c.role_tier = 'B' THEN 1 END) AS tier_b,
+               count(CASE WHEN c.role_tier = 'C' THEN 1 END) AS tier_c,
+               count(CASE WHEN c.role_tier = 'D' THEN 1 END) AS tier_d,
+               count(CASE WHEN c.role_tier IN ['E', 'F'] THEN 1 END) AS tier_ef,
+               min(s.year) AS first_year,
+               max(s.year) AS latest_year
+        """,
+        person_id=person_id,
+    )
+    if person is None:
+        raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
 
-        if person is None:
-            raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
+    role_rows = read(
+        driver,
+        """
+        MATCH (:Person {id: $person_id})-[c:CREDITED]->()
+        WITH c.position_id AS position_id, c.position_cn AS position,
+             c.normalized_role AS normalized_role, c.role_tier AS role_tier,
+             count(*) AS credit_count
+        RETURN position, normalized_role, role_tier, credit_count
+        ORDER BY credit_count DESC, role_tier, position
+        LIMIT $role_limit
+        """,
+        person_id=person_id,
+        role_limit=role_limit,
+    )
+    recent_rows = read(
+        driver,
+        """
+        MATCH (:Person {id: $person_id})-[c:CREDITED]->(s:Anime)
+        WITH s, collect(DISTINCT c.position_cn) AS roles, max(c.role_weight) AS max_role_weight
+        RETURN s.id AS subject_id, s.name AS subject_name, s.name_cn AS subject_name_cn,
+               s.year AS year, s.date AS date, roles, max_role_weight
+        ORDER BY coalesce(s.year, 0) DESC, s.date DESC, max_role_weight DESC, s.id DESC
+        LIMIT $recent_limit
+        """,
+        person_id=person_id,
+        recent_limit=recent_limit,
+    )
 
-        role_rows = conn.execute(
-            """
-            SELECT
-              position_cn,
-              normalized_role,
-              role_tier,
-              credit_count
-            FROM person_role_counts
-            WHERE person_id = ?
-            ORDER BY credit_count DESC, role_tier, position_cn
-            LIMIT ?
-            """,
-            [person_id, role_limit],
-        ).fetchall()
-
-        recent_rows = conn.execute(
-            """
-            SELECT
-              s.id::INTEGER AS subject_id,
-              s.name AS subject_name,
-              s.name_cn AS subject_name_cn,
-              s.year AS subject_year,
-              s.date AS subject_date,
-              STRING_AGG(DISTINCT c.position_cn, '、' ORDER BY c.position_cn) AS roles,
-              MAX(c.role_weight) AS max_role_weight
-            FROM credits c
-            JOIN subjects s ON s.id = c.subject_id
-            WHERE c.person_id = ?
-            GROUP BY s.id, s.name, s.name_cn, s.year, s.date
-            ORDER BY COALESCE(s.year, 0) DESC, s.date DESC, max_role_weight DESC, s.id DESC
-            LIMIT ?
-            """,
-            [person_id, recent_limit],
-        ).fetchall()
-        source = _source_payload(conn)
-
-    career_json = person[3] or "[]"
     try:
-        career = json.loads(career_json)
+        career = json.loads(person["career_json"] or "[]")
     except json.JSONDecodeError:
         career = []
 
     return {
         "person": {
-            "id": person[0],
-            "name": person[1],
-            "nameCn": extract_person_name_cn(person[2] or ""),
-            "nameTw": extract_person_name_tw(person[2] or ""),
+            "id": str(person_id),
+            "name": person["name"],
+            "nameCn": extract_person_name_cn(person["infobox"] or ""),
+            "nameTw": extract_person_name_tw(person["infobox"] or ""),
             "career": career if isinstance(career, list) else [],
-            "summary": person[4] or "",
+            "summary": person["summary"] or "",
         },
         "stats": {
-            "animeCreditCount": int(person[5] or 0),
-            "animeSubjectCount": int(person[6] or 0),
-            "tierSCount": int(person[7] or 0),
-            "tierACount": int(person[8] or 0),
-            "tierBCount": int(person[9] or 0),
-            "tierCCount": int(person[10] or 0),
-            "tierDCount": int(person[11] or 0),
-            "tierEFCount": int(person[12] or 0),
-            "firstCreditYear": int(person[13]) if person[13] is not None else None,
-            "latestCreditYear": int(person[14]) if person[14] is not None else None,
+            "animeCreditCount": int(person["credit_count"]),
+            "animeSubjectCount": int(person["subject_count"]),
+            "tierSCount": int(person["tier_s"]),
+            "tierACount": int(person["tier_a"]),
+            "tierBCount": int(person["tier_b"]),
+            "tierCCount": int(person["tier_c"]),
+            "tierDCount": int(person["tier_d"]),
+            "tierEFCount": int(person["tier_ef"]),
+            "firstCreditYear": person["first_year"],
+            "latestCreditYear": person["latest_year"],
         },
         "topRoles": [
             {
-                "position": row[0],
-                "normalizedRole": row[1],
-                "roleTier": row[2],
-                "creditCount": int(row[3]),
+                "position": row["position"],
+                "normalizedRole": row["normalized_role"],
+                "roleTier": row["role_tier"],
+                "creditCount": int(row["credit_count"]),
             }
             for row in role_rows
         ],
         "recentWorks": [
             {
-                "subjectId": int(row[0]),
-                "subjectName": row[1],
-                "subjectNameCn": row[2],
-                "year": row[3],
-                "date": row[4],
-                "roles": row[5] or "",
-                "maxRoleWeight": float(row[6] or 0),
+                "subjectId": int(row["subject_id"]),
+                "subjectName": row["subject_name"],
+                "subjectNameCn": row["subject_name_cn"],
+                "year": row["year"],
+                "date": row["date"],
+                "roles": _join_roles(row["roles"]),
+                "maxRoleWeight": float(row["max_role_weight"] or 0),
             }
             for row in recent_rows
         ],
-        "source": source,
+        "source": _source_payload(driver),
     }
 
 
@@ -515,213 +450,134 @@ def person_credits(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
     """Complete row-level anime credit history for one person."""
-    with connect_readonly() as conn:
-        person = conn.execute(
-            "SELECT id::TEXT, name, infobox FROM persons WHERE id = ?",
-            [person_id],
-        ).fetchone()
-        if person is None:
-            raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
+    driver = graph()
+    person = read_one(
+        driver,
+        """
+        MATCH (p:Person {id: $person_id})
+        RETURN p.name AS name, p.infobox AS infobox, COUNT { (p)-[:CREDITED]->() } AS total
+        """,
+        person_id=person_id,
+    )
+    if person is None:
+        raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
 
-        total = conn.execute(
-            "SELECT COUNT(*) FROM credits WHERE person_id = ?",
-            [person_id],
-        ).fetchone()[0]
-
-        rows = conn.execute(
-            """
-            SELECT
-              c.subject_id::INTEGER AS subject_id,
-              s.name AS subject_name,
-              s.name_cn AS subject_name_cn,
-              s.year AS subject_year,
-              s.date AS subject_date,
-              c.position_id::INTEGER AS position_id,
-              c.position_cn,
-              c.position_en,
-              c.raw_position,
-              c.normalized_role,
-              c.role_tier,
-              c.role_weight,
-              c.appear_eps
-            FROM credits c
-            JOIN subjects s ON s.id = c.subject_id
-            WHERE c.person_id = ?
-            ORDER BY COALESCE(s.year, 0) DESC, s.date DESC, s.id DESC, c.role_weight DESC, c.position_cn
-            LIMIT ? OFFSET ?
-            """,
-            [person_id, limit, offset],
-        ).fetchall()
-        source = _source_payload(conn)
+    rows = read(
+        driver,
+        """
+        MATCH (:Person {id: $person_id})-[c:CREDITED]->(s:Anime)
+        RETURN s.id AS subject_id, s.name AS subject_name, s.name_cn AS subject_name_cn,
+               s.year AS year, s.date AS date, c.position_id AS position_id,
+               c.position_cn AS position, c.position_en AS position_en,
+               c.raw_position AS raw_position, c.normalized_role AS normalized_role,
+               c.role_tier AS role_tier, c.role_weight AS role_weight,
+               c.appear_eps AS appear_eps
+        ORDER BY coalesce(s.year, 0) DESC, s.date DESC, s.id DESC, c.role_weight DESC, c.position_cn
+        SKIP $offset
+        LIMIT $limit
+        """,
+        person_id=person_id,
+        offset=offset,
+        limit=limit,
+    )
 
     return {
-        "person": _person_payload(person[0], person[1], person[2] or ""),
-        "total": int(total),
+        "person": _person_payload(person_id, person["name"], person["infobox"] or ""),
+        "total": int(person["total"]),
         "limit": limit,
         "offset": offset,
         "credits": [
             {
-                "subjectId": int(row[0]),
-                "subjectName": row[1],
-                "subjectNameCn": row[2],
-                "year": row[3],
-                "date": row[4],
-                "positionId": int(row[5]) if row[5] is not None else None,
-                "position": row[6],
-                "positionEn": row[7],
-                "rawPosition": row[8],
-                "normalizedRole": row[9],
-                "roleTier": row[10],
-                "roleWeight": float(row[11] or 0),
-                "appearEps": row[12] or "",
+                "subjectId": int(row["subject_id"]),
+                "subjectName": row["subject_name"],
+                "subjectNameCn": row["subject_name_cn"],
+                "year": row["year"],
+                "date": row["date"],
+                "positionId": row["position_id"],
+                "position": row["position"],
+                "positionEn": row["position_en"],
+                "rawPosition": row["raw_position"],
+                "normalizedRole": row["normalized_role"],
+                "roleTier": row["role_tier"],
+                "roleWeight": float(row["role_weight"] or 0),
+                "appearEps": row["appear_eps"] or "",
             }
             for row in rows
         ],
-        "source": source,
+        "source": _source_payload(driver),
     }
+
+
+# Per-pair evidence derived from the knowledge graph: each shared work counts
+# once, weighted by both people's highest-weight role on it.
+_PAIR_SHARED_WORKS = """
+MATCH (a:Person {id: $person_a})-[ra:CREDITED]->(s:Anime)<-[rb:CREDITED]-(b:Person {id: $person_b})
+WITH s, collect(DISTINCT ra.position_cn) AS a_roles, collect(DISTINCT rb.position_cn) AS b_roles,
+     max(ra.role_weight) AS a_weight, max(rb.role_weight) AS b_weight
+RETURN s.id AS subject_id, s.name AS subject_name, s.name_cn AS subject_name_cn,
+       s.year AS year, s.date AS date, a_roles, b_roles, a_weight, b_weight
+ORDER BY coalesce(s.year, -1) DESC, s.date DESC
+"""
+
+_PAIR_STATS = """
+UNWIND $pairs AS pair
+MATCH (a:Person {id: pair[0]})-[ra:CREDITED]->(s:Anime)<-[rb:CREDITED]-(b:Person {id: pair[1]})
+WITH pair, s, max(ra.role_weight) AS a_weight, max(rb.role_weight) AS b_weight
+RETURN pair, count(s) AS shared, sum(sqrt(a_weight * b_weight)) AS score
+"""
 
 
 @app.get("/api/collaboration/{person_a}/{person_b}")
 def collaboration_detail(person_a: int, person_b: int) -> dict[str, Any]:
     """Shared works, roles, and years for two people who collaborated."""
-    with connect_readonly() as conn:
-        source_person_id = min(person_a, person_b)
-        target_person_id = max(person_a, person_b)
-        edge = conn.execute(
-            """
-            SELECT
-              shared_works_count,
-              collaboration_score,
-              first_year,
-              last_year,
-              role_layer
-            FROM person_collaboration_edges
-            WHERE source_person_id = ?
-              AND target_person_id = ?
-            """,
-            [source_person_id, target_person_id],
-        ).fetchone()
+    driver = graph()
+    rows = [] if person_a == person_b else read(
+        driver, _PAIR_SHARED_WORKS, person_a=person_a, person_b=person_b
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No collaboration found between {person_a} and {person_b}",
+        )
 
-        if edge is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No collaboration found between {person_a} and {person_b}",
-            )
-
-        shared_works_count = int(edge[0])
-        collaboration_score = float(edge[1])
-        first_year = int(edge[2]) if edge[2] is not None else None
-        last_year = int(edge[3]) if edge[3] is not None else None
-        selection_reason = str(edge[4])
-
-        # Get both person names
-        p_a = conn.execute(
-            "SELECT name, infobox FROM persons WHERE id = ?", [person_a]
-        ).fetchone()
-        p_b = conn.execute(
-            "SELECT name, infobox FROM persons WHERE id = ?", [person_b]
-        ).fetchone()
-
-        # Get shared works with individual roles
-        shared_works_rows = conn.execute(
-            """
-            SELECT
-              s.id::INTEGER AS subject_id,
-              s.name AS subject_name,
-              s.name_cn AS subject_name_cn,
-              s.year AS subject_year,
-              s.date AS subject_date,
-              (
-                SELECT STRING_AGG(DISTINCT c_a.position_cn, '、' ORDER BY c_a.position_cn)
-                FROM credits c_a
-                WHERE c_a.subject_id = s.id AND c_a.person_id = ?
-              ) AS person_a_roles,
-              (
-                SELECT STRING_AGG(DISTINCT c_b.position_cn, '、' ORDER BY c_b.position_cn)
-                FROM credits c_b
-                WHERE c_b.subject_id = s.id AND c_b.person_id = ?
-              ) AS person_b_roles
-            FROM subjects s
-            WHERE EXISTS (
-              SELECT 1 FROM credits c1 WHERE c1.subject_id = s.id AND c1.person_id = ?
-            )
-              AND EXISTS (
-                SELECT 1 FROM credits c2 WHERE c2.subject_id = s.id AND c2.person_id = ?
-              )
-            ORDER BY s.year DESC, s.date DESC
-            """,
-            [person_a, person_b, person_a, person_b],
-        ).fetchall()
-        source = _source_payload(conn)
+    people = {
+        row["id"]: row
+        for row in read(
+            driver,
+            "MATCH (p:Person) WHERE p.id IN $ids RETURN p.id AS id, p.name AS name, p.infobox AS infobox",
+            ids=[person_a, person_b],
+        )
+    }
+    years = [row["year"] for row in rows if row["year"] is not None]
+    score = sum(math.sqrt(row["a_weight"] * row["b_weight"]) for row in rows)
 
     return {
-        "personA": _person_payload(person_a, p_a[0], p_a[1] or "") if p_a else {"id": str(person_a), "name": "?", "nameCn": "", "nameTw": ""},
-        "personB": _person_payload(person_b, p_b[0], p_b[1] or "") if p_b else {"id": str(person_b), "name": "?", "nameCn": "", "nameTw": ""},
-        "sharedWorksCount": shared_works_count,
-        "collaborationScore": round(collaboration_score, 2),
-        "firstYear": first_year,
-        "lastYear": last_year,
-        "selectionReason": selection_reason,
+        "personA": _person_payload(person_a, people[person_a]["name"], people[person_a]["infobox"] or ""),
+        "personB": _person_payload(person_b, people[person_b]["name"], people[person_b]["infobox"] or ""),
+        "sharedWorksCount": len(rows),
+        "collaborationScore": round(score, 2),
+        "firstYear": min(years) if years else None,
+        "lastYear": max(years) if years else None,
+        "selectionReason": "all_staff",
         "sharedWorks": [
             {
-                "subjectId": int(row[0]),
-                "subjectName": row[1],
-                "subjectNameCn": row[2],
-                "year": row[3],
-                "date": row[4],
-                "personARoles": row[5] or "",
-                "personBRoles": row[6] or "",
+                "subjectId": int(row["subject_id"]),
+                "subjectName": row["subject_name"],
+                "subjectNameCn": row["subject_name_cn"],
+                "year": row["year"],
+                "date": row["date"],
+                "personARoles": _join_roles(row["a_roles"]),
+                "personBRoles": _join_roles(row["b_roles"]),
             }
-            for row in shared_works_rows
+            for row in rows
         ],
-        "source": source,
+        "source": _source_payload(driver),
     }
 
 
-def _person_has_complete_edges(conn: duckdb.DuckDBPyConnection, person_id: int) -> bool:
-    row = conn.execute(
-        """
-        SELECT 1
-        FROM person_collaboration_edges
-        WHERE source_person_id = ? OR target_person_id = ?
-        LIMIT 1
-        """,
-        [person_id, person_id],
-    ).fetchone()
-    return row is not None
-
-
-def _frontier_complete_edges(
-    conn: duckdb.DuckDBPyConnection,
-    frontier: set[int],
-) -> list[tuple[int, int, int, float]]:
-    conn.execute("DROP TABLE IF EXISTS path_frontier_nodes")
-    conn.execute("CREATE TEMP TABLE path_frontier_nodes(id INTEGER)")
-    conn.executemany(
-        "INSERT INTO path_frontier_nodes VALUES (?)",
-        [(person_id,) for person_id in frontier],
-    )
-    rows = conn.execute(
-        """
-        SELECT
-          f.id AS current_id,
-          e.target_person_id AS neighbor_id,
-          e.shared_works_count,
-          e.collaboration_score
-        FROM path_frontier_nodes f
-        JOIN person_collaboration_edges e ON e.source_person_id = f.id
-        UNION ALL
-        SELECT
-          f.id AS current_id,
-          e.source_person_id AS neighbor_id,
-          e.shared_works_count,
-          e.collaboration_score
-        FROM path_frontier_nodes f
-        JOIN person_collaboration_edges e ON e.target_person_id = f.id
-        """
-    ).fetchall()
-    conn.execute("DROP TABLE IF EXISTS path_frontier_nodes")
-    return rows
+# Upper bound on raw shortest paths enumerated per request. Paths that differ
+# only in which anime links two people collapse to one person sequence.
+PATH_ENUMERATION_LIMIT = 2_000
 
 
 @app.get("/api/path/{person_a}/{person_b}")
@@ -731,124 +587,105 @@ def shortest_path(
     max_paths: Annotated[int, Query(ge=1, le=10)] = 5,
     max_depth: Annotated[int, Query(ge=1, le=8)] = 6,
 ) -> dict[str, Any]:
-    """All shortest paths through the complete staff collaboration graph."""
-    with connect_readonly() as conn:
-        edge_count = conn.execute("SELECT COUNT(*) FROM person_collaboration_edges").fetchone()[0]
-        if edge_count == 0:
-            raise HTTPException(status_code=503, detail="No complete collaboration edges available")
+    """All shortest collaboration paths, traversing Person-[:CREDITED]-Anime in the full graph.
 
-        if person_a == person_b:
-            person = conn.execute("SELECT name, infobox FROM persons WHERE id = ?", [person_a]).fetchone()
-            if person is None:
-                return {"found": False, "reason": f"Unknown person {person_a}"}
-            return {
-                "found": True,
-                "degree": 0,
-                "pathCount": 1,
-                "people": [_person_payload(person_a, person[0], person[1] or "")],
-                "paths": [{"nodes": [str(person_a)], "steps": []}],
-            }
+    One collaboration hop is Person -> Anime -> Person, so max_depth people-hops
+    is 2 * max_depth relationships. Distinct person sequences are ranked by
+    their weakest step, then total collaboration score.
+    """
+    driver = graph()
+    endpoints = {
+        row["id"]: row
+        for row in read(
+            driver,
+            """
+            MATCH (p:Person) WHERE p.id IN $ids
+            RETURN p.id AS id, p.name AS name, p.infobox AS infobox,
+                   EXISTS { (p)-[:CREDITED]->() } AS has_credits
+            """,
+            ids=[person_a, person_b],
+        )
+    }
 
-        if not _person_has_complete_edges(conn, person_a):
-            return {"found": False, "reason": f"Person {person_a} has no complete staff edges"}
-        if not _person_has_complete_edges(conn, person_b):
-            return {"found": False, "reason": f"Person {person_b} has no complete staff edges"}
+    if person_a == person_b:
+        person = endpoints.get(person_a)
+        if person is None:
+            return {"found": False, "reason": f"Unknown person {person_a}"}
+        return {
+            "found": True,
+            "degree": 0,
+            "pathCount": 1,
+            "people": [_person_payload(person_a, person["name"], person["infobox"] or "")],
+            "paths": [{"nodes": [str(person_a)], "steps": []}],
+        }
 
-        parents: dict[int, list[tuple[int, int, float]]] = defaultdict(list)
-        depth: dict[int, int] = {person_a: 0}
-        frontier: set[int] = {person_a}
-        found_depth: int | None = None
+    for person_id in (person_a, person_b):
+        if not endpoints.get(person_id, {}).get("has_credits"):
+            return {"found": False, "reason": f"Person {person_id} has no complete staff edges"}
 
-        for cur_depth in range(max_depth):
-            rows = _frontier_complete_edges(conn, frontier)
-            next_frontier: set[int] = set()
-
-            for current, neighbor, swc, cs in rows:
-                current_id = int(current)
-                neighbor_id = int(neighbor)
-                new_depth = cur_depth + 1
-
-                if neighbor_id not in depth:
-                    depth[neighbor_id] = new_depth
-                    parents[neighbor_id].append((current_id, int(swc), float(cs)))
-                    next_frontier.add(neighbor_id)
-                elif depth[neighbor_id] == new_depth:
-                    parents[neighbor_id].append((current_id, int(swc), float(cs)))
-
-            if person_b in depth and depth[person_b] == cur_depth + 1:
-                found_depth = cur_depth + 1
-                break
-            if not next_frontier:
-                break
-            frontier = next_frontier
-
-    if person_b not in parents:
+    # Quantifier bounds cannot be parameters; max_depth is a validated int.
+    path_rows = read(
+        driver,
+        f"""
+        MATCH (a:Person {{id: $person_a}}), (b:Person {{id: $person_b}})
+        MATCH p = ALL SHORTEST (a)-[:CREDITED]-{{1,{2 * max_depth}}}(b)
+        RETURN [n IN nodes(p) WHERE n:Person | n.id] AS ids
+        LIMIT $enumeration_limit
+        """,
+        person_a=person_a,
+        person_b=person_b,
+        enumeration_limit=PATH_ENUMERATION_LIMIT,
+    )
+    sequences = list(dict.fromkeys(tuple(row["ids"]) for row in path_rows))
+    if not sequences:
         return {
             "found": False,
             "reason": f"No path found between {person_a} and {person_b} within {max_depth} hops",
         }
 
-    # Backtrack to collect all paths (limit to max_paths)
-    all_paths: list[tuple[list[int], list[dict[str, Any]]]] = []
-
-    def backtrack(node: int, path_ids: list[int], steps: list[dict[str, Any]]) -> None:
-        if len(all_paths) >= max_paths:
-            return
-        if node == person_a:
-            all_paths.append((list(reversed(path_ids)), list(reversed(steps))))
-            return
-        for prev, swc, cs in parents[node]:
-            backtrack(
-                prev,
-                path_ids + [prev],
-                steps
-                + [
-                    {
-                        "source": str(prev),
-                        "target": str(node),
-                        "sharedWorksCount": swc,
-                        "collaborationScore": round(cs, 2),
-                    }
-                ],
-            )
-
-    backtrack(person_b, [person_b], [])
-
-    # Collect all unique person IDs across all paths
-    all_ids: set[int] = {person_a, person_b}
-    for path_ids, _ in all_paths:
-        all_ids.update(path_ids)
-
-    with connect_readonly() as conn:
-        name_rows = conn.execute(
-            """
-            SELECT id, name, infobox FROM persons
-            WHERE id IN ({})
-            """.format(",".join("?" for _ in all_ids)),
-            list(all_ids),
-        ).fetchall()
-
-    people: dict[int, dict[str, Any]] = {
-        int(r[0]): _person_payload(r[0], r[1], r[2] or "")
-        for r in name_rows
+    pairs = sorted({pair for seq in sequences for pair in zip(seq, seq[1:])})
+    step_stats = {
+        tuple(row["pair"]): (int(row["shared"]), float(row["score"]))
+        for row in read(driver, _PAIR_STATS, pairs=[list(pair) for pair in pairs])
     }
 
-    degree = found_depth if found_depth is not None else depth[person_b]
+    def strength(seq: tuple[int, ...]) -> tuple[float, float, tuple[int, ...]]:
+        scores = [step_stats[pair][1] for pair in zip(seq, seq[1:])]
+        return (-min(scores), -sum(scores), seq)
+
+    best = sorted(sequences, key=strength)[:max_paths]
+    all_ids = sorted({person_id for seq in best for person_id in seq})
+    people = {
+        row["id"]: _person_payload(row["id"], row["name"], row["infobox"] or "")
+        for row in read(
+            driver,
+            "MATCH (p:Person) WHERE p.id IN $ids RETURN p.id AS id, p.name AS name, p.infobox AS infobox",
+            ids=all_ids,
+        )
+    }
 
     return {
         "found": True,
-        "degree": degree,
-        "pathCount": len(all_paths),
+        "degree": len(best[0]) - 1,
+        "pathCount": len(best),
         "people": [
             people.get(pid, {"id": str(pid), "name": f"Person {pid}", "nameCn": "", "nameTw": ""})
-            for pid in sorted(all_ids)
+            for pid in all_ids
         ],
         "paths": [
             {
-                "nodes": [str(pid) for pid in path_ids],
-                "steps": steps,
+                "nodes": [str(pid) for pid in seq],
+                "steps": [
+                    {
+                        "source": str(source),
+                        "target": str(target),
+                        "sharedWorksCount": step_stats[(source, target)][0],
+                        "collaborationScore": round(step_stats[(source, target)][1], 2),
+                    }
+                    for source, target in zip(seq, seq[1:])
+                ],
             }
-            for path_ids, steps in all_paths
+            for seq in best
         ],
     }
 
@@ -929,114 +766,80 @@ def _compact_cjk_variants(text: str) -> list[str]:
     })
 
 
-def _search_match_rank_sql(q: str) -> tuple[str, list[str]]:
-    norms = _normalized_cjk_variants(q)
-    compacts = _compact_cjk_variants(q)
-    exact_clauses: list[str] = []
-    prefix_clauses: list[str] = []
-    contains_clauses: list[str] = []
-    params: list[str] = []
 
-    for norm in norms:
-        exact_clauses.append("st.term_norm = ?")
-        params.append(norm)
-    for compact in compacts:
-        exact_clauses.append("st.term_compact = ?")
-        params.append(compact)
-    for norm in norms:
-        prefix_clauses.append("st.term_norm LIKE ?")
-        params.append(f"{norm}%")
-    for compact in compacts:
-        prefix_clauses.append("st.term_compact LIKE ?")
-        params.append(f"{compact}%")
-    for norm in norms:
-        contains_clauses.append("st.term_norm LIKE ?")
-        params.append(f"%{norm}%")
-    for compact in compacts:
-        contains_clauses.append("st.term_compact LIKE ?")
-        params.append(f"%{compact}%")
-
-    exact_sql = " OR ".join(exact_clauses) or "FALSE"
-    prefix_sql = " OR ".join(prefix_clauses) or "FALSE"
-    contains_sql = " OR ".join(contains_clauses) or "FALSE"
+def _search_row(row: dict[str, Any]) -> tuple[str, str, str, str, int]:
     return (
-        f"""
-        MIN(CASE
-          WHEN {exact_sql} THEN 0
-          WHEN {prefix_sql} THEN 1
-          WHEN {contains_sql} THEN 2
-          ELSE 3
-        END)
-        """,
-        params,
+        str(row["id"]),
+        row["name"],
+        extract_person_name_cn(row["infobox"] or ""),
+        extract_person_name_tw(row["infobox"] or ""),
+        row["degree"],
     )
 
 
+_SEARCH_CANDIDATES = """
+UNWIND $norms AS v
+MATCH (t:SearchTerm) WHERE t.norm CONTAINS v
+RETURN DISTINCT t.person_id AS person_id
+UNION
+UNWIND $compacts AS v
+MATCH (t:SearchTerm) WHERE t.compact CONTAINS v
+RETURN DISTINCT t.person_id AS person_id
+"""
+
+
 def _search_person_rows(
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     q: str,
     limit: int,
     *,
     exclude_id: int | None = None,
 ) -> list[tuple[str, str, str, str, int]]:
+    """Every whitespace-separated term must match one of the person's SearchTerms;
+    rank by the best match (exact 0, prefix 1, contains 2) across all variants."""
     terms = [term.strip() for term in q.split() if term.strip()] or [q]
-    conditions: list[str] = []
-    params: list[str | int] = []
-
-    for index, term in enumerate(terms):
-        norm_variants = _normalized_cjk_variants(term)
-        compact_variants = _compact_cjk_variants(term)
-        term_clauses: list[str] = []
-        for norm in norm_variants:
-            term_clauses.append(f"st{index}.term_norm LIKE ?")
-            params.append(f"%{norm}%")
-        for compact in compact_variants:
-            term_clauses.append(f"st{index}.term_compact LIKE ?")
-            params.append(f"%{compact}%")
-        conditions.append(
-            f"""
-            EXISTS (
-              SELECT 1
-              FROM person_search_terms st{index}
-              WHERE st{index}.person_id = g.person_id
-                AND ({" OR ".join(term_clauses)})
+    candidates: set[int] | None = None
+    for term in terms:
+        # Each term is a TEXT-index CONTAINS seek; intersecting in Python keeps
+        # multi-term AND queries from rescanning the whole graph.
+        term_ids = {
+            row["person_id"]
+            for row in read(
+                driver,
+                _SEARCH_CANDIDATES,
+                norms=_normalized_cjk_variants(term),
+                compacts=_compact_cjk_variants(term),
             )
-            """
-        )
+        }
+        candidates = term_ids if candidates is None else candidates & term_ids
+        if not candidates:
+            return []
+    assert candidates is not None
+    candidates.discard(exclude_id)  # type: ignore[arg-type]
 
-    if exclude_id is not None:
-        conditions.append("g.person_id != ?")
-        params.append(exclude_id)
-
-    rank_sql, rank_params = _search_match_rank_sql(q)
-    rows = conn.execute(
-        f"""
-        SELECT
-          g.person_id::TEXT AS id,
-          p.name,
-          p.infobox,
-          g.visible_degree AS degree,
-          {rank_sql} AS match_rank
-        FROM graph_nodes g
-        JOIN persons p ON g.person_id = p.id
-        JOIN person_search_terms st ON st.person_id = g.person_id
-        WHERE {" AND ".join(conditions)}
-        GROUP BY g.person_id, p.name, p.infobox, g.visible_degree, g.visible_weighted_degree
-        ORDER BY match_rank, g.visible_degree DESC, g.visible_weighted_degree DESC, p.name
-        LIMIT ?
+    rows = read(
+        driver,
+        """
+        MATCH (g:GalaxyNode) WHERE g.id IN $candidate_ids
+        MATCH (g)-[:HAS_SEARCH_TERM]->(st:SearchTerm)
+        WITH g, min(CASE
+          WHEN st.norm IN $norms OR st.compact IN $compacts THEN 0
+          WHEN any(v IN $norms WHERE st.norm STARTS WITH v)
+            OR any(v IN $compacts WHERE st.compact STARTS WITH v) THEN 1
+          WHEN any(v IN $norms WHERE st.norm CONTAINS v)
+            OR any(v IN $compacts WHERE st.compact CONTAINS v) THEN 2
+          ELSE 3
+        END) AS match_rank
+        RETURN g.id AS id, g.name AS name, g.infobox AS infobox, g.visible_degree AS degree
+        ORDER BY match_rank, degree DESC, g.visible_weighted_degree DESC, name
+        LIMIT $limit
         """,
-        [*rank_params, *params, limit],
-    ).fetchall()
-    return [
-        (
-            row[0],
-            row[1],
-            extract_person_name_cn(row[2] or ""),
-            extract_person_name_tw(row[2] or ""),
-            row[3],
-        )
-        for row in rows
-    ]
+        candidate_ids=list(candidates),
+        norms=_normalized_cjk_variants(q),
+        compacts=_compact_cjk_variants(q),
+        limit=limit,
+    )
+    return [_search_row(row) for row in rows]
 
 
 def _max_fuzzy_distance(query: str) -> int:
@@ -1045,9 +848,11 @@ def _max_fuzzy_distance(query: str) -> int:
     return 1 if len(query) < 8 else 2
 
 
-def _unicode_edit_distance(a: str, b: str, max_distance: int) -> int:
+def _edit_distance(a: str, b: str, max_distance: int) -> int:
+    """Optimal-string-alignment distance (adjacent transpositions cost 1), with early exit."""
     if abs(len(a) - len(b)) > max_distance:
         return max_distance + 1
+    before_previous: list[int] = []
     previous = list(range(len(b) + 1))
     for i, ca in enumerate(a, start=1):
         current = [i]
@@ -1059,16 +864,18 @@ def _unicode_edit_distance(a: str, b: str, max_distance: int) -> int:
                 current[j - 1] + 1,
                 previous[j - 1] + cost,
             )
+            if i > 1 and j > 1 and ca == b[j - 2] and a[i - 2] == cb:
+                value = min(value, before_previous[j - 2] + 1)
             current.append(value)
             row_min = min(row_min, value)
         if row_min > max_distance:
             return max_distance + 1
-        previous = current
+        before_previous, previous = previous, current
     return previous[-1]
 
 
 def _fuzzy_search_person_rows(
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     q: str,
     limit: int,
     *,
@@ -1084,103 +891,48 @@ def _fuzzy_search_person_rows(
     if max_distance == 0:
         return []
 
-    min_length = max(1, len(query) - max_distance)
-    max_length = len(query) + max_distance
     first_chars = sorted({variant[0] for variant in compact_variants if variant})
-    if not first_chars:
-        return []
-
-    exclude_clause = ""
-    exclude_params: list[str] = []
-    if exclude_ids:
-        exclude_clause = "AND g.person_id::TEXT NOT IN ({})".format(
-            ", ".join("?" for _ in exclude_ids)
-        )
-        exclude_params = sorted(exclude_ids)
-
-    prefix_sql = " OR ".join("starts_with(st.term_compact, ?)" for _ in first_chars)
-
-    if query.isascii():
-        rows = conn.execute(
-            f"""
-            SELECT
-              g.person_id::TEXT AS id,
-              p.name,
-              p.infobox,
-              g.visible_degree AS degree,
-              MIN(damerau_levenshtein(st.term_compact, ?)) AS fuzzy_distance
-            FROM person_search_terms st
-            JOIN graph_nodes g ON g.person_id = st.person_id
-            JOIN persons p ON p.id = st.person_id
-            WHERE st.term_compact <> ''
-              AND length(st.term_compact) BETWEEN ? AND ?
-              AND ({prefix_sql})
-              {exclude_clause}
-            GROUP BY g.person_id, p.name, p.infobox, g.visible_degree, g.visible_weighted_degree
-            HAVING fuzzy_distance <= ?
-            ORDER BY fuzzy_distance, g.visible_degree DESC, g.visible_weighted_degree DESC, p.name
-            LIMIT ?
-            """,
-            [query, min_length, max_length, *first_chars, *exclude_params, max_distance, limit],
-        ).fetchall()
-        return [
-            (
-                row[0],
-                row[1],
-                extract_person_name_cn(row[2] or ""),
-                extract_person_name_tw(row[2] or ""),
-                row[3],
-            )
-            for row in rows
-        ]
-
-    candidates = conn.execute(
-        f"""
-        SELECT
-          g.person_id::TEXT AS id,
-          p.name,
-          p.infobox,
-          g.visible_degree AS degree,
-          g.visible_weighted_degree,
-          st.term_compact
-        FROM person_search_terms st
-        JOIN graph_nodes g ON g.person_id = st.person_id
-        JOIN persons p ON p.id = st.person_id
-        WHERE st.term_compact <> ''
-          AND length(st.term_compact) BETWEEN ? AND ?
-          AND ({prefix_sql})
-          {exclude_clause}
+    candidates = read(
+        driver,
+        """
+        UNWIND $first_chars AS first_char
+        MATCH (st:SearchTerm) WHERE st.compact STARTS WITH first_char
+        WITH st WHERE size(st.compact) >= $min_length AND size(st.compact) <= $max_length
+        MATCH (g:GalaxyNode {id: st.person_id})
+        WHERE NOT g.id IN $exclude_ids
+        RETURN g.id AS id, g.name AS name, g.infobox AS infobox,
+               g.visible_degree AS degree, g.visible_weighted_degree AS weighted_degree,
+               st.compact AS term_compact
         """,
-        [min_length, max_length, *first_chars, *exclude_params],
-    ).fetchall()
+        min_length=max(1, len(query) - max_distance),
+        max_length=len(query) + max_distance,
+        first_chars=first_chars,
+        exclude_ids=[int(person_id) for person_id in exclude_ids],
+    )
 
-    best_by_person: dict[str, tuple[int, str, str, str, int, float]] = {}
-    for person_id, name, infobox, degree, weighted_degree, term_compact in candidates:
+    best_by_person: dict[str, tuple[int, dict[str, Any]]] = {}
+    for row in candidates:
         distance = min(
-            _unicode_edit_distance(str(term_compact), variant, max_distance)
+            _edit_distance(str(row["term_compact"]), variant, max_distance)
             for variant in compact_variants
         )
         if distance > max_distance:
             continue
-        current = best_by_person.get(str(person_id))
+        person_id = str(row["id"])
+        current = best_by_person.get(person_id)
         if current is None or distance < current[0]:
-            best_by_person[str(person_id)] = (
-                distance,
-                str(name),
-                extract_person_name_cn(str(infobox or "")),
-                extract_person_name_tw(str(infobox or "")),
-                int(degree),
-                float(weighted_degree or 0),
-            )
+            best_by_person[person_id] = (distance, row)
 
     ranked = sorted(
-        best_by_person.items(),
-        key=lambda item: (item[1][0], -item[1][4], -item[1][5], item[1][1]),
+        best_by_person.values(),
+        key=lambda item: (
+            item[0],
+            -item[1]["degree"],
+            -float(item[1]["weighted_degree"] or 0),
+            item[1]["name"],
+        ),
     )
-    return [
-        (person_id, name, name_cn, name_tw, degree)
-        for person_id, (_distance, name, name_cn, name_tw, degree, _weighted_degree) in ranked[:limit]
-    ]
+    return [_search_row(row) for _, row in ranked[:limit]]
 
 
 @app.get("/api/search/persons")
@@ -1189,50 +941,38 @@ def search_persons(
     limit: int = Query(default=20, ge=1, le=50000),
 ) -> list[dict[str, Any]]:
     """Search people by Bangumi ID, names, CJK variants, and Archive infobox aliases."""
-    with connect_readonly() as conn:
-        if not q.strip():
-            return []
+    if not q.strip():
+        return []
+    driver = graph()
+    q = q.strip()
 
-        q = q.strip()
-
-        # Numeric ID → exact match first
-        if q.isdigit():
-            exact_rows = conn.execute(
+    # Numeric ID → exact match first
+    if q.isdigit():
+        rows = [
+            _search_row(row)
+            for row in read(
+                driver,
                 """
-                SELECT g.person_id::TEXT AS id, p.name, p.infobox, g.visible_degree AS degree
-                FROM graph_nodes g
-                JOIN persons p ON g.person_id = p.id
-                WHERE g.person_id = ?
-                LIMIT ?
+                MATCH (g:GalaxyNode {id: $person_id})
+                RETURN g.id AS id, g.name AS name, g.infobox AS infobox, g.visible_degree AS degree
                 """,
-                [int(q), limit],
-            ).fetchall()
-            rows = [
-                (
-                    row[0],
-                    row[1],
-                    extract_person_name_cn(row[2] or ""),
-                    extract_person_name_tw(row[2] or ""),
-                    row[3],
+                person_id=int(q),
+            )
+        ][:limit]
+        remaining = limit - len(rows)
+        if remaining > 0:
+            rows.extend(_search_person_rows(driver, q, remaining, exclude_id=int(q)))
+    else:
+        rows = _search_person_rows(driver, q, limit)
+        if len(rows) < limit:
+            seen_ids = {row[0] for row in rows}
+            rows.extend(
+                _fuzzy_search_person_rows(
+                    driver,
+                    q,
+                    limit - len(rows),
+                    exclude_ids=seen_ids,
                 )
-                for row in exact_rows
-            ]
-            remaining = limit - len(rows)
-            if remaining > 0:
-                rows.extend(
-                    _search_person_rows(conn, q, remaining, exclude_id=int(q))
-                )
-        else:
-            rows = _search_person_rows(conn, q, limit)
-            if len(rows) < limit:
-                seen_ids = {row[0] for row in rows}
-                rows.extend(
-                    _fuzzy_search_person_rows(
-                        conn,
-                        q,
-                        limit - len(rows),
-                        exclude_ids=seen_ids,
-                    )
-                )
+            )
 
     return row_dicts(rows, ["id", "name", "nameCn", "nameTw", "degree"])

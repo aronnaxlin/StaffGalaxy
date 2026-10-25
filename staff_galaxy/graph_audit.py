@@ -5,7 +5,9 @@ import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
-import duckdb
+from neo4j import Driver
+
+from .graph_db import read
 
 
 LAYER_TIERS: dict[str, set[str]] = {
@@ -45,18 +47,22 @@ class LayerAudit:
 
 
 def audit_graph_layers(
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     materialize_pair_limit: int,
     top_k_values: tuple[int, ...] = (5, 10, 20),
 ) -> list[LayerAudit]:
-    rows = conn.execute(
-        """
-        SELECT c.subject_id, c.person_id, c.role_tier, c.role_weight, s.name, s.name_cn
-        FROM credits c
-        JOIN subjects s ON s.id = c.subject_id
-        WHERE c.role_tier IS NOT NULL
-        """
-    ).fetchall()
+    rows = [
+        (row["subject_id"], row["person_id"], row["role_tier"], row["role_weight"], row["name"], row["name_cn"])
+        for row in read(
+            driver,
+            """
+            MATCH (p:Person)-[c:CREDITED]->(s:Anime)
+            WHERE c.role_tier IS NOT NULL
+            RETURN s.id AS subject_id, p.id AS person_id, c.role_tier AS role_tier,
+                   c.role_weight AS role_weight, s.name AS name, s.name_cn AS name_cn
+            """,
+        )
+    ]
 
     layer_subject_people: dict[str, dict[int, dict[int, float]]] = {
         layer: defaultdict(dict) for layer in LAYER_TIERS

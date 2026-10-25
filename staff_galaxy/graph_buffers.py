@@ -26,9 +26,10 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-import duckdb
 import numpy as np
+from neo4j import Driver
 
+from .graph_db import read, read_one
 from .layout import NO_COMMUNITY
 from .search_index import extract_person_name_cn, extract_person_name_tw
 
@@ -56,7 +57,7 @@ HEADER_SIZE = 4 + 4 + 4 + 4 + SEGMENT_COUNT * 8
 COSMOS_SPACE_SIZE = 8192.0
 COSMOS_LAYOUT_SIZE = 4300.0
 
-# Keep Float32 headroom: raw x/y are rounded to 4 decimals in graph_nodes, and
+# Keep Float32 headroom: raw x/y are rounded to 4 decimals on GalaxyNode, and
 # the normalization below stays well inside Float32 precision at this scale.
 UINT32_MAX = 0xFFFF_FFFF
 
@@ -78,46 +79,58 @@ def _node_base_color(degree: int) -> tuple[int, int, int, int]:
     return (v, v, v, 255)
 
 
-def build_graph_buffers(conn: duckdb.DuckDBPyConnection) -> GraphBuffers:
-    node_rows = conn.execute(
+def build_graph_buffers(driver: Driver) -> GraphBuffers:
+    node_rows = [
+        (
+            row["person_id"],
+            row["name"],
+            row["infobox"],
+            row["x"],
+            row["y"],
+            row["visible_degree"],
+            row["visible_weighted_degree"],
+            row["node_size"],
+            row["community_id"],
+            row["layout_method"],
+        )
+        for row in read(
+            driver,
+            """
+            MATCH (p:GalaxyNode)
+            RETURN p.id AS person_id, p.name AS name, p.infobox AS infobox,
+                   p.x AS x, p.y AS y,
+                   p.visible_degree AS visible_degree,
+                   p.visible_weighted_degree AS visible_weighted_degree,
+                   p.node_size AS node_size,
+                   p.community_id AS community_id,
+                   p.layout_method AS layout_method
+            ORDER BY visible_weighted_degree DESC, visible_degree DESC, person_id
+            """,
+        )
+    ]
+    # Columnar fetch: four lists in one record decode far faster than 500K+
+    # records, and numpy sorts faster than the server's ORDER BY.
+    edge_columns = read_one(
+        driver,
         """
-        SELECT
-          g.person_id,
-          p.name,
-          p.infobox,
-          g.x,
-          g.y,
-          g.visible_degree,
-          g.visible_weighted_degree,
-          g.node_size,
-          g.community_id,
-          g.layout_method
-        FROM graph_nodes g
-        JOIN persons p ON p.id = g.person_id
-        ORDER BY g.visible_weighted_degree DESC, g.visible_degree DESC, g.person_id
-        """
-    ).fetchall()
-    edge_rows = conn.execute(
-        """
-        SELECT
-          e.source_person_id,
-          e.target_person_id,
-          e.shared_works_count,
-          e.collaboration_score
-        FROM visible_person_edges e
-        JOIN graph_nodes s ON e.source_person_id = s.person_id
-        JOIN graph_nodes t ON e.target_person_id = t.person_id
-        ORDER BY e.shared_works_count DESC, e.collaboration_score DESC, e.source_person_id, e.target_person_id
-        """
-    ).fetchall()
+        MATCH (s:GalaxyNode)-[e:COLLAB]->(t:GalaxyNode)
+        RETURN collect(s.id) AS sources, collect(t.id) AS targets,
+               collect(e.shared_works_count) AS shared, collect(e.collaboration_score) AS scores
+        """,
+    ) or {"sources": [], "targets": [], "shared": [], "scores": []}
+    edge_sources = np.asarray(edge_columns["sources"], dtype=np.int64)
+    edge_targets = np.asarray(edge_columns["targets"], dtype=np.int64)
+    edge_shared_raw = np.asarray(edge_columns["shared"], dtype=np.int64)
+    edge_scores = np.asarray(edge_columns["scores"], dtype=np.float64)
+    # shared_works_count DESC, collaboration_score DESC, source, target
+    order = np.lexsort((edge_targets, edge_sources, -edge_scores, -edge_shared_raw))
 
     node_count = len(node_rows)
-    edge_count = len(edge_rows)
+    edge_count = len(order)
     if node_count > UINT32_MAX or edge_count > UINT32_MAX:
         raise ValueError("graph too large for u32 buffer indices")
 
     person_ids = np.fromiter((int(r[0]) for r in node_rows), dtype=np.int64, count=node_count)
-    index_of = {int(pid): i for i, pid in enumerate(person_ids)}
 
     # --- positions, normalized to Cosmos space (span 4300 centered in 8192) --
     xs = np.fromiter((float(r[3]) for r in node_rows), dtype=np.float64, count=node_count)
@@ -147,14 +160,14 @@ def build_graph_buffers(conn: duckdb.DuckDBPyConnection) -> GraphBuffers:
         count=node_count,
     )
 
+    # Map person ids to node indices (node order is weighted-degree DESC).
+    id_order = np.argsort(person_ids, kind="stable")
+    sorted_ids = person_ids[id_order]
     edge_pairs = np.empty(edge_count * 2, dtype=np.uint32)
-    edge_weights = np.empty(edge_count, dtype=np.float32)
-    edge_shared = np.empty(edge_count, dtype=np.uint16)
-    for i, (source_id, target_id, shared, score) in enumerate(edge_rows):
-        edge_pairs[i * 2] = index_of[int(source_id)]
-        edge_pairs[i * 2 + 1] = index_of[int(target_id)]
-        edge_weights[i] = float(score or 0.0)
-        edge_shared[i] = min(int(shared or 0), 0xFFFF)
+    edge_pairs[0::2] = id_order[np.searchsorted(sorted_ids, edge_sources[order])]
+    edge_pairs[1::2] = id_order[np.searchsorted(sorted_ids, edge_targets[order])]
+    edge_weights = edge_scores[order].astype(np.float32)
+    edge_shared = np.minimum(edge_shared_raw[order], 0xFFFF).astype(np.uint16)
 
     segments: list[tuple[str, np.ndarray]] = [
         ("positions", positions),

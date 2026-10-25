@@ -18,7 +18,7 @@ Nodes with no visible edges (isolates) are excluded from community
 detection output (community_id = NULL) and placed on an outer ring so the
 connected core stays readable.
 
-Writes back graph_nodes.community_id / x / y / layout_method.
+Writes back GalaxyNode.community_id / x / y / layout_method.
 """
 
 from __future__ import annotations
@@ -27,10 +27,12 @@ import math
 import time
 from dataclasses import dataclass
 
-import duckdb
 import igraph as ig
 import leidenalg
 import numpy as np
+from neo4j import Driver
+
+from .graph_db import read, write_batches
 
 LAYOUT_METHOD = "hier_leiden_fr_v1"
 
@@ -132,7 +134,7 @@ def _pack_communities(
 
 
 def build_hierarchical_layout(
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     *,
     resolution: float = 1.0,
     seed: int = 42,
@@ -140,26 +142,26 @@ def build_hierarchical_layout(
 ) -> LayoutStats:
     started = time.perf_counter()
 
-    node_rows = conn.execute(
-        "SELECT person_id, visible_degree FROM graph_nodes ORDER BY person_id"
-    ).fetchall()
-    edge_rows = conn.execute(
+    node_rows = read(driver, "MATCH (p:GalaxyNode) RETURN p.id AS person_id ORDER BY person_id")
+    edge_rows = read(
+        driver,
         """
-        SELECT source_person_id, target_person_id, collaboration_score
-        FROM visible_person_edges
-        """
-    ).fetchall()
+        MATCH (s:GalaxyNode)-[e:COLLAB]->(t:GalaxyNode)
+        RETURN s.id AS source, t.id AS target, e.collaboration_score AS score
+        """,
+    )
 
-    person_ids = [int(row[0]) for row in node_rows]
+    person_ids = [int(row["person_id"]) for row in node_rows]
     index_of = {person_id: i for i, person_id in enumerate(person_ids)}
     n = len(person_ids)
 
     edges: list[tuple[int, int]] = []
     weights: list[float] = []
     degree = np.zeros(n, dtype=np.int64)
-    for source_id, target_id, score in edge_rows:
-        s = index_of.get(int(source_id))
-        t = index_of.get(int(target_id))
+    for row in edge_rows:
+        score = row["score"]
+        s = index_of.get(int(row["source"]))
+        t = index_of.get(int(row["target"]))
         if s is None or t is None:
             continue
         edges.append((s, t))
@@ -277,22 +279,26 @@ def build_hierarchical_layout(
     for i in range(n):
         community_col.append(None if degree[i] == 0 else int(membership[i]))
 
-    conn.executemany(
+    write_batches(
+        driver,
         """
-        UPDATE graph_nodes
-        SET community_id = ?, x = ?, y = ?, layout_method = ?
-        WHERE person_id = ?
+        UNWIND $rows AS row
+        MATCH (p:GalaxyNode {id: row.person_id})
+        SET p.community_id = row.community_id,
+            p.x = row.x,
+            p.y = row.y,
+            p.layout_method = row.layout_method
         """,
-        [
-            (
-                community_col[i],
-                round(float(positions[i, 0]), 4),
-                round(float(positions[i, 1]), 4),
-                LAYOUT_METHOD,
-                person_ids[i],
-            )
+        (
+            {
+                "person_id": person_ids[i],
+                "community_id": community_col[i],
+                "x": round(float(positions[i, 0]), 4),
+                "y": round(float(positions[i, 1]), 4),
+                "layout_method": LAYOUT_METHOD,
+            }
             for i in range(n)
-        ],
+        ),
     )
 
     return LayoutStats(

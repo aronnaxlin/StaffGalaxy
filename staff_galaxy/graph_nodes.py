@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-import duckdb
+from neo4j import Driver
+
+from .graph_db import read, write, write_batches
 
 
 @dataclass(frozen=True)
@@ -15,102 +18,85 @@ class GraphNodeStats:
     layout_method: str
 
 
+GOLDEN_ANGLE = 2.399963229728653
+
+
 def build_graph_nodes(
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     *,
     min_role_weight: float = 12.0,
 ) -> GraphNodeStats:
-    layout_method = "deterministic_spiral_v1"
-    conn.execute("DELETE FROM graph_nodes")
-    conn.execute("DROP TABLE IF EXISTS graph_node_metrics")
+    """Label galaxy members as :GalaxyNode and store degree, size, and a spiral seed position.
 
-    conn.execute(
+    Members are every person with at least one credit at role_weight >=
+    min_role_weight. build_hierarchical_layout later overwrites x/y/community.
+    """
+    layout_method = "deterministic_spiral_v1"
+    rows = read(
+        driver,
         """
-        CREATE TEMP TABLE graph_node_metrics AS
-        WITH tier_people AS (
-          SELECT DISTINCT person_id
-          FROM credits
-          WHERE role_weight >= ?
-        ),
-        edge_degrees AS (
-          SELECT
-            person_id,
-            COUNT(*)::INTEGER AS visible_degree,
-            SUM(collaboration_score)::DOUBLE AS visible_weighted_degree
-          FROM (
-            SELECT source_person_id AS person_id, collaboration_score
-            FROM visible_person_edges
-            UNION ALL
-            SELECT target_person_id AS person_id, collaboration_score
-            FROM visible_person_edges
-          )
-          GROUP BY person_id
-        )
-        SELECT
-          tp.person_id,
-          COALESCE(ed.visible_degree, 0)::INTEGER AS visible_degree,
-          COALESCE(ed.visible_weighted_degree, 0.0)::DOUBLE AS visible_weighted_degree
-        FROM tier_people tp
-        LEFT JOIN edge_degrees ed ON ed.person_id = tp.person_id
+        MATCH (p:Person)
+        WHERE EXISTS { (p)-[r:CREDITED]->() WHERE r.role_weight >= $min_role_weight }
+        OPTIONAL MATCH (p)-[e:COLLAB]-()
+        RETURN p.id AS person_id,
+               count(e) AS visible_degree,
+               coalesce(sum(e.collaboration_score), 0.0) AS visible_weighted_degree
         """,
-        [min_role_weight],
+        min_role_weight=min_role_weight,
     )
+    rows.sort(key=lambda r: (-r["visible_weighted_degree"], -r["visible_degree"], r["person_id"]))
 
     role_layer = f"Weight >={min_role_weight}"
-    conn.execute(
-        """
-        INSERT INTO graph_nodes
-        WITH ranked AS (
-          SELECT
-            person_id,
-            visible_degree,
-            visible_weighted_degree,
-            ROW_NUMBER() OVER (
-              ORDER BY visible_weighted_degree DESC, visible_degree DESC, person_id
-            ) AS rn,
-            COUNT(*) OVER () AS total_count
-          FROM graph_node_metrics
-        ),
-        positioned AS (
-          SELECT
-            person_id,
-            visible_degree,
-            visible_weighted_degree,
-            SQRT((rn - 1)::DOUBLE / GREATEST(total_count - 1, 1)) * 1000.0 AS radius,
-            (rn - 1) * 2.399963229728653 AS angle
-          FROM ranked
+    total = len(rows)
+    node_rows: list[dict[str, object]] = []
+    for rn, row in enumerate(rows):
+        radius = math.sqrt(rn / max(total - 1, 1)) * 1000.0
+        angle = rn * GOLDEN_ANGLE
+        weighted = float(row["visible_weighted_degree"])
+        node_rows.append(
+            {
+                "person_id": row["person_id"],
+                "x": math.cos(angle) * radius,
+                "y": math.sin(angle) * radius,
+                "visible_degree": int(row["visible_degree"]),
+                "visible_weighted_degree": weighted,
+                "node_size": 2.0 + min(10.0, math.log(1.0 + weighted) * 1.8),
+                "role_layer": role_layer,
+                "layout_method": layout_method,
+            }
         )
-        SELECT
-          person_id,
-          NULL::INTEGER AS community_id,
-          COS(angle) * radius AS x,
-          SIN(angle) * radius AS y,
-          visible_degree,
-          visible_weighted_degree,
-          (2.0 + LEAST(10.0, LN(1.0 + visible_weighted_degree) * 1.8))::DOUBLE
-            AS node_size,
-          ? AS role_layer,
-          ? AS layout_method
-        FROM positioned
+
+    write(
+        driver,
+        """
+        MATCH (p:GalaxyNode)
+        REMOVE p:GalaxyNode, p.community_id, p.x, p.y, p.visible_degree,
+               p.visible_weighted_degree, p.node_size, p.role_layer, p.layout_method
         """,
-        [role_layer, layout_method],
+    )
+    write_batches(
+        driver,
+        """
+        UNWIND $rows AS row
+        MATCH (p:Person {id: row.person_id})
+        SET p:GalaxyNode,
+            p.community_id = null,
+            p.x = row.x,
+            p.y = row.y,
+            p.visible_degree = row.visible_degree,
+            p.visible_weighted_degree = row.visible_weighted_degree,
+            p.node_size = row.node_size,
+            p.role_layer = row.role_layer,
+            p.layout_method = row.layout_method
+        """,
+        node_rows,
     )
 
-    row = conn.execute(
-        """
-        SELECT
-          COUNT(*) AS node_count,
-          COUNT(*) FILTER (WHERE visible_degree > 0) AS nodes_with_visible_edges,
-          MAX(visible_degree) AS max_visible_degree,
-          MAX(node_size) AS max_node_size
-        FROM graph_nodes
-        """
-    ).fetchone()
     return GraphNodeStats(
-        node_count=int(row[0]),
-        nodes_with_visible_edges=int(row[1]),
-        max_visible_degree=int(row[2] or 0),
-        max_node_size=float(row[3] or 0.0),
+        node_count=total,
+        nodes_with_visible_edges=sum(1 for row in node_rows if row["visible_degree"]),
+        max_visible_degree=max((int(row["visible_degree"]) for row in node_rows), default=0),  # type: ignore[call-overload]
+        max_node_size=max((float(row["node_size"]) for row in node_rows), default=0.0),  # type: ignore[arg-type]
         role_layer=role_layer,
         layout_method=layout_method,
     )

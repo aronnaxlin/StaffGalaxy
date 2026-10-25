@@ -4,7 +4,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-import duckdb
+from neo4j import Driver
+
+from .graph_db import read, run_in_transactions, write_batches
 
 
 _BRACKET_TERM_RE = re.compile(r"\[([^\[\]\r\n]+)\]")
@@ -108,30 +110,16 @@ def extract_person_name_tw(infobox: str) -> str:
     return _extract_person_field(infobox, {"繁体中文名", "繁體中文名"})
 
 
-def build_person_search_terms(conn: duckdb.DuckDBPyConnection) -> SearchIndexStats:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS person_search_terms (
-          person_id INTEGER,
-          term TEXT,
-          term_norm TEXT,
-          term_compact TEXT,
-          term_kind TEXT
-        )
-        """
+def build_person_search_terms(driver: Driver) -> SearchIndexStats:
+    run_in_transactions(
+        driver,
+        "MATCH (t:SearchTerm) CALL (t) { DETACH DELETE t } IN TRANSACTIONS OF 10000 ROWS",
     )
-    conn.execute("DELETE FROM person_search_terms")
+    rows = read(driver, "MATCH (p:Person) RETURN p.id AS id, p.name AS name, p.infobox AS infobox")
 
-    rows = conn.execute(
-        """
-        SELECT id, name, COALESCE(infobox, '')
-        FROM persons
-        WHERE type = 1
-        """
-    ).fetchall()
-
-    records: list[tuple[int, str, str, str, str]] = []
-    for person_id, name, infobox in rows:
+    records: list[dict[str, object]] = []
+    for row in rows:
+        person_id, name, infobox = row["id"], row["name"], row["infobox"] or ""
         person_terms: list[tuple[str, str]] = [(name, "name")] if name else []
         person_terms.extend((term, "infobox") for term in extract_infobox_search_terms(infobox))
 
@@ -143,16 +131,24 @@ def build_person_search_terms(conn: duckdb.DuckDBPyConnection) -> SearchIndexSta
             if not key or key in seen:
                 continue
             seen.add(key)
-            records.append((int(person_id), term, norm, compact, kind))
+            records.append(
+                {
+                    "person_id": int(person_id),
+                    "term": term,
+                    "norm": norm,
+                    "compact": compact,
+                    "kind": kind,
+                }
+            )
 
-    if records:
-        conn.executemany(
-            """
-            INSERT INTO person_search_terms (
-              person_id, term, term_norm, term_compact, term_kind
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            records,
-        )
-
+    write_batches(
+        driver,
+        """
+        UNWIND $rows AS row
+        MATCH (p:Person {id: row.person_id})
+        CREATE (p)-[:HAS_SEARCH_TERM]->(t:SearchTerm)
+        SET t = row
+        """,
+        records,
+    )
     return SearchIndexStats(person_count=len(rows), term_count=len(records))

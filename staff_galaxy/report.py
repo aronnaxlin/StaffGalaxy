@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
-import duckdb
+from neo4j import Driver
 
 from .graph_audit import LayerAudit
+from .graph_db import read, read_one
 from .ingest import IngestStats
 
 
 def write_audit_report(
     path: Path,
-    conn: duckdb.DuckDBPyConnection,
+    driver: Driver,
     archive_name: str,
     archive_created_at: str,
     archive_size_bytes: int,
@@ -40,7 +42,7 @@ def write_audit_report(
             f"| Anime credits involving real individual people | {ingest_stats.anime_real_person_credits:,} |",
             f"| Real people with anime credits | {ingest_stats.real_people_with_anime_credits:,} |",
             f"| Anime subjects with real person credits | {ingest_stats.anime_subjects_with_real_person_credits:,} |",
-            f"| Anime cast rows involving real individual people | {_single_int(conn, 'SELECT COUNT(*) FROM person_characters'):,} |",
+            f"| Anime cast rows involving real individual people | {ingest_stats.anime_cast_rows:,} |",
             "",
             "### Subject Counts By Type",
             "",
@@ -52,11 +54,11 @@ def write_audit_report(
 
     lines.extend(["", "## Top Raw Position IDs", ""])
     lines.extend(_query_table(
-        conn,
+        driver,
         """
-        SELECT position_id, position_cn, position_en, COUNT(*) AS credit_count
-        FROM credits
-        GROUP BY position_id, position_cn, position_en
+        MATCH ()-[c:CREDITED]->()
+        RETURN c.position_id AS position_id, c.position_cn AS cn, c.position_en AS en,
+               count(*) AS credit_count
         ORDER BY credit_count DESC, position_id
         LIMIT 40
         """,
@@ -65,11 +67,10 @@ def write_audit_report(
 
     lines.extend(["", "## Top Cast People By Anime Character Links", ""])
     lines.extend(_query_table(
-        conn,
+        driver,
         """
-        SELECT person_name, COUNT(*) AS cast_rows
-        FROM cast_details
-        GROUP BY person_name
+        MATCH (p:Person)-[v:VOICED]->()
+        RETURN p.name AS person_name, count(v) AS cast_rows
         ORDER BY cast_rows DESC, person_name
         LIMIT 20
         """,
@@ -78,23 +79,22 @@ def write_audit_report(
 
     lines.extend(["", "## Normalized Role Counts", ""])
     lines.extend(_query_table(
-        conn,
+        driver,
         """
-        SELECT normalized_role, role_tier, COUNT(*) AS credit_count
-        FROM credits
-        WHERE normalized_role IS NOT NULL
-        GROUP BY normalized_role, role_tier
-        ORDER BY credit_count DESC, normalized_role
+        MATCH ()-[c:CREDITED]->()
+        WHERE c.normalized_role IS NOT NULL
+        RETURN c.normalized_role AS role, c.role_tier AS tier, count(*) AS credit_count
+        ORDER BY credit_count DESC, role
         """,
         ("Role", "Tier", "Credits"),
     ))
 
-    unmapped = conn.execute(
-        "SELECT COUNT(*) FROM credits WHERE normalized_role IS NULL"
-    ).fetchone()[0]
-    tier_d = conn.execute(
-        "SELECT COUNT(*) FROM credits WHERE role_tier = 'D'"
-    ).fetchone()[0]
+    unmapped = _single_int(
+        driver, "MATCH ()-[c:CREDITED]->() WHERE c.normalized_role IS NULL RETURN count(c) AS n"
+    )
+    tier_d = _single_int(
+        driver, "MATCH ()-[c:CREDITED]->() WHERE c.role_tier = 'D' RETURN count(c) AS n"
+    )
     lines.extend(
         [
             "",
@@ -106,12 +106,12 @@ def write_audit_report(
         ]
     )
     lines.extend(_query_table(
-        conn,
+        driver,
         """
-        SELECT position_id, position_cn, position_en, COUNT(*) AS credit_count
-        FROM credits
-        WHERE role_tier = 'D'
-        GROUP BY position_id, position_cn, position_en
+        MATCH ()-[c:CREDITED]->()
+        WHERE c.role_tier = 'D'
+        RETURN c.position_id AS position_id, c.position_cn AS cn, c.position_en AS en,
+               count(*) AS credit_count
         ORDER BY credit_count DESC, position_id
         LIMIT 30
         """,
@@ -122,93 +122,62 @@ def write_audit_report(
     for audit in layer_audits:
         lines.extend(_layer_section(audit))
 
-    visible_summary = conn.execute(
+    visible_summary = read_one(
+        driver,
         """
-        SELECT
-          COUNT(*) AS edge_count,
-          COUNT(DISTINCT source_person_id) AS source_count,
-          COUNT(DISTINCT target_person_id) AS target_count,
-          COUNT(*) FILTER (WHERE shared_works_count >= 2) AS shared_ge_2,
-          COUNT(*) FILTER (WHERE selection_reason = 'top_k') AS top_k_only
-        FROM visible_person_edges
-        """
-    ).fetchone()
-    visible_nodes = conn.execute(
-        """
-        SELECT COUNT(DISTINCT person_id)
-        FROM (
-          SELECT source_person_id AS person_id FROM visible_person_edges
-          UNION ALL
-          SELECT target_person_id AS person_id FROM visible_person_edges
-        )
-        """
-    ).fetchone()[0]
+        MATCH (s:Person)-[e:COLLAB]->(t:Person)
+        WITH collect(DISTINCT s.id) + collect(DISTINCT t.id) AS endpoints,
+             count(e) AS edge_count,
+             count(CASE WHEN e.shared_works_count >= 2 THEN 1 END) AS shared_ge_2,
+             count(CASE WHEN e.selection_reason = 'bicm_significant' THEN 1 END) AS significant,
+             count(CASE WHEN e.selection_reason = 'spanning_forest' THEN 1 END) AS forest
+        UNWIND endpoints AS person_id
+        RETURN edge_count, shared_ge_2, significant, forest, count(DISTINCT person_id) AS visible_nodes
+        """,
+    ) or {"edge_count": 0, "shared_ge_2": 0, "significant": 0, "forest": 0, "visible_nodes": 0}
     lines.extend(
         [
             "",
             "## Built Visible Backbone",
             "",
-            "The database currently builds the MVP global graph backbone from Tier A with this rule:",
-            "",
-            "```text",
-            "sharedWorksCount >= 2 OR top 10 strongest neighbors per endpoint",
-            "```",
+            "The galaxy backbone is the BiCM-validated projection of the weight >= 12 person-anime layer "
+            "(Benjamini-Hochberg FDR 0.05 over all person pairs), united with the maximum spanning forest "
+            "by collaboration score so no person is stranded. See `staff_galaxy/visible_edges.py`.",
             "",
             "| Metric | Count |",
             "| --- | ---: |",
-            f"| Visible nodes | {visible_nodes:,} |",
-            f"| Visible edges | {visible_summary[0]:,} |",
-            f"| Edges with `sharedWorksCount >= 2` | {visible_summary[3]:,} |",
-            f"| Top-10-only edges | {visible_summary[4]:,} |",
+            f"| Visible nodes | {visible_summary['visible_nodes']:,} |",
+            f"| Visible edges | {visible_summary['edge_count']:,} |",
+            f"| Edges with `sharedWorksCount >= 2` | {visible_summary['shared_ge_2']:,} |",
+            f"| BiCM-significant edges | {visible_summary['significant']:,} |",
+            f"| Spanning-forest-only edges | {visible_summary['forest']:,} |",
             "",
         ]
     )
-    graph_node_summary = conn.execute(
+    graph_node_summary = read_one(
+        driver,
         """
-        SELECT
-          COUNT(*) AS node_count,
-          COUNT(*) FILTER (WHERE visible_degree > 0) AS nodes_with_edges,
-          MAX(visible_degree) AS max_degree,
-          ROUND(MAX(node_size), 2) AS max_size,
-          MIN(layout_method) AS layout_method
-        FROM graph_nodes
-        """
-    ).fetchone()
+        MATCH (g:GalaxyNode)
+        RETURN count(g) AS node_count,
+               count(CASE WHEN g.visible_degree > 0 THEN 1 END) AS nodes_with_edges,
+               coalesce(max(g.visible_degree), 0) AS max_degree,
+               round(coalesce(max(g.node_size), 0.0), 2) AS max_size,
+               min(g.layout_method) AS layout_method
+        """,
+    ) or {}
     lines.extend(
         [
             "## Built Graph Nodes",
             "",
-            "The database also materializes Tier A graph nodes. Coordinates currently use a deterministic spiral placeholder so exports are stable before the later ForceAtlas2 layout phase.",
+            "The database labels galaxy members as `:GalaxyNode` and stores their layout coordinates on the node.",
             "",
             "| Metric | Count |",
             "| --- | ---: |",
-            f"| Graph nodes | {graph_node_summary[0]:,} |",
-            f"| Nodes with visible edges | {graph_node_summary[1]:,} |",
-            f"| Max visible degree | {graph_node_summary[2]:,} |",
-            f"| Max node size | {graph_node_summary[3]} |",
-            f"| Layout method | `{graph_node_summary[4]}` |",
-            "",
-        ]
-    )
-
-    lines.extend(
-        [
-            "",
-            "## Recommendation",
-            "",
-            "Use Tier A for the first global backbone graph.",
-            "",
-            "Tier A is the best first default because it preserves the main creator network while keeping graph density manageable. "
-            "Tier A+B is valuable for local expansion and person detail, but is too dense for the initial global view. "
-            "Tier C should remain in normal person detail. Tier D should stay behind load-more/full-history affordances.",
-            "",
-            "Suggested first export rule:",
-            "",
-            "```text",
-            "Role layer: Tier A",
-            "Visible edge rule: sharedWorksCount >= 2 OR top 10 strongest neighbors per node",
-            "Person detail: show Tier A/B/C/CAST first, then Tier D behind load-more",
-            "```",
+            f"| Graph nodes | {graph_node_summary.get('node_count', 0):,} |",
+            f"| Nodes with visible edges | {graph_node_summary.get('nodes_with_edges', 0):,} |",
+            f"| Max visible degree | {graph_node_summary.get('max_degree', 0):,} |",
+            f"| Max node size | {graph_node_summary.get('max_size', 0.0)} |",
+            f"| Layout method | `{graph_node_summary.get('layout_method')}` |",
             "",
         ]
     )
@@ -224,14 +193,13 @@ def _counter_table(values: dict[int | None, int], label: str) -> list[str]:
     return lines
 
 
-def _single_int(conn: duckdb.DuckDBPyConnection, query: str) -> int:
-    return int(conn.execute(query).fetchone()[0])
+def _single_int(driver: Driver, query: str) -> int:
+    row = read_one(driver, query)
+    return int(next(iter(row.values()))) if row else 0
 
 
-def _query_table(
-    conn: duckdb.DuckDBPyConnection, query: str, headers: tuple[str, ...]
-) -> list[str]:
-    rows = conn.execute(query).fetchall()
+def _query_table(driver: Driver, query: str, headers: tuple[str, ...]) -> list[str]:
+    rows: list[tuple[Any, ...]] = [tuple(row.values()) for row in read(driver, query)]
     lines = ["| " + " | ".join(headers) + " |"]
     lines.append("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
