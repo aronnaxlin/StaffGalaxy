@@ -10,7 +10,7 @@ from .graph_db import read, run_in_transactions, write_batches
 
 
 _BRACKET_TERM_RE = re.compile(r"\[([^\[\]\r\n]+)\]")
-_FIELD_RE = re.compile(r"^\|([^=]+)=\s*(.*)$", re.MULTILINE)
+_FIELD_RE = re.compile(r"^\|([^=]+)=[ \t]*(.*)$", re.MULTILINE)
 _ALIAS_SPLIT_RE = re.compile(r"[、,，;；/／]+")
 _COMPACT_DROP_RE = re.compile(r"[\s\-_・·.．,，、/／()（）\[\]【】]+")
 

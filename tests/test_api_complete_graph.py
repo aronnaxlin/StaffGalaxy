@@ -14,7 +14,11 @@ from staff_galaxy import api
 from staff_galaxy.graph_buffers import HEADER_SIZE, MAGIC, SEGMENT_NAMES, parse_segment_table
 from staff_galaxy.graph_db import clear_database, create_constraints, read, record_data_snapshot, set_driver, write_batches
 from staff_galaxy.ingest import credit_row, write_anime, write_credits, write_persons, write_positions
-from staff_galaxy.search_index import build_person_search_terms
+from staff_galaxy.search_index import (
+    build_person_search_terms,
+    extract_infobox_search_terms,
+    extract_person_name_cn,
+)
 from staff_galaxy.visible_edges import benjamini_hochberg, build_visible_person_edges, fit_bicm
 
 
@@ -310,6 +314,14 @@ class BackboneStatisticsTests(unittest.TestCase):
         row_class, _, P = fit_bicm(np.array([1, 1]), np.array([2]))
 
         self.assertEqual(P[row_class].tolist(), [[1.0], [1.0]])
+
+
+class InfoboxNameTests(unittest.TestCase):
+    def test_empty_name_field_does_not_capture_next_line(self) -> None:
+        infobox = "{{Infobox Crt\r\n|简体中文名= \r\n|别名={\r\n[日文名|水上ろんど]\r\n}\r\n}}"
+
+        self.assertEqual(extract_person_name_cn(infobox), "")
+        self.assertNotIn("|别名={", extract_infobox_search_terms(infobox))
 
 
 if __name__ == "__main__":
