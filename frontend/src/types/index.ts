@@ -15,7 +15,6 @@ export interface GalaxyNode {
   firstYear?: number
   lastYear?: number
   neighborRoleTier?: string
-  expandedFrom?: string
 }
 
 export interface GalaxyEdge {
@@ -26,7 +25,6 @@ export interface GalaxyEdge {
   firstYear?: number
   lastYear?: number
   selectionReason?: string
-  expandedFrom?: string
 }
 
 export interface SearchEntry {
@@ -200,4 +198,38 @@ export interface PersonDetail {
   topRoles: PersonRoleSummary[]
   recentWorks: PersonRecentWork[]
   source: DataSource
+}
+
+export interface KnowledgeGraphPersonNode extends PersonNameLike {
+  key: string
+  kind: 'person'
+  id: string
+  isCenter: boolean
+  sharedWorksCount?: number
+  collaborationScore?: number
+}
+
+export interface KnowledgeGraphAnimeNode {
+  key: string
+  kind: 'anime'
+  id: string
+  name: string
+  nameCn: string
+  year: number | null
+}
+
+export type KnowledgeGraphNode = KnowledgeGraphPersonNode | KnowledgeGraphAnimeNode
+
+export interface KnowledgeGraphLink {
+  source: string
+  target: string
+  roles: string[]
+  roleTier: string
+  roleWeight: number
+}
+
+export interface PersonKnowledgeGraph {
+  centerId: string
+  nodes: KnowledgeGraphNode[]
+  links: KnowledgeGraphLink[]
 }

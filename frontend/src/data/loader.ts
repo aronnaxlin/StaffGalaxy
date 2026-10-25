@@ -6,13 +6,12 @@ import type {
   PathResult,
   PersonDetail,
   PersonCreditsResponse,
+  PersonKnowledgeGraph,
   Manifest,
 } from '../types'
 import { recordRuntimeMetric } from './runtimeMetrics'
 
-interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string; expandedFrom?: string }
-
-export type Level = 'person' | 'global'
+interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string }
 
 export interface LevelData {
   nodes: GalaxyNode[]
@@ -87,11 +86,21 @@ export async function loadPersonGalaxy(
       firstYear: e.firstYear,
       lastYear: e.lastYear,
       selectionReason: e.selectionReason,
-      expandedFrom: e.expandedFrom,
     })),
   }
   personGalaxyCache.set(cacheKey, levelData)
   return levelData
+}
+
+const knowledgeGraphCache = new Map<string, PersonKnowledgeGraph>()
+
+export async function loadPersonKnowledgeGraph(personId: string): Promise<PersonKnowledgeGraph> {
+  const cached = knowledgeGraphCache.get(personId)
+  if (cached) return cached
+
+  const data = await fetchJson<PersonKnowledgeGraph>(`/api/person/${personId}/knowledge-graph`)
+  knowledgeGraphCache.set(personId, data)
+  return data
 }
 
 const personDetailCache = new Map<string, PersonDetail>()

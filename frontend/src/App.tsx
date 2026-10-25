@@ -1,14 +1,14 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useMemo } from 'react'
-import type Graph from 'graphology'
-import { loadManifest, loadPersonGalaxy, type Level, type LevelData } from './data/loader'
+import { loadManifest, loadPersonGalaxy, type LevelData } from './data/loader'
 import { loadGlobalGraph, type GlobalGraphData } from './data/graphBuffers'
-import { buildGraph } from './data/graphBuilder'
+import { Popover, Tooltip } from 'radix-ui'
+import { Info } from 'lucide-react'
 import { SearchBar } from './components/SearchBar'
-import { NodePanel } from './components/NodePanel'
+import { PersonSidebar } from './components/PersonSidebar'
 import { NameModeToggle } from './components/NameModeToggle'
-import { mutedLink, panelShell } from './components/ui'
+import { iconButton, mutedLink, panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
-import { buildGlobalPayload, buildPersonPayload } from './data/cosmosPayload'
+import { buildGlobalPayload } from './data/cosmosPayload'
 import type { Manifest, PersonNameMode } from './types'
 
 type ViewMode = 'galaxy' | 'constellation'
@@ -21,77 +21,41 @@ const ConstellationView = lazy(() => import('./components/ConstellationView').th
   default: module.ConstellationView,
 })))
 
-const PERSON_GALAXY_LIMIT_DEFAULT = 120
-const PERSON_GALAXY_MIN_SHARED_DEFAULT = 1
-const PERSON_GALAXY_EXPANSION_LIMIT = 36
-const PERSON_GALAXY_EXPANSION_SCALE = 0.34
-
-const LEVEL_LABELS: Record<Level, string> = {
-  person: '个人星系',
-  global: '全量星系',
-}
+const NEIGHBOR_LIMIT_DEFAULT = 120
+const NEIGHBOR_MIN_SHARED_DEFAULT = 1
 
 function ViewLoading({ label }: { label: string }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[#0a0a0f] text-sm text-slate-500">
+    <div className="flex h-full w-full items-center justify-center bg-[#0b0c10] text-sm text-zinc-500">
       {label}
     </div>
   )
 }
 
-function DataSourceNotice({
-  manifest,
-  selectedNode,
-}: {
-  manifest: Manifest | null
-  selectedNode: string | null
-}) {
-  const [open, setOpen] = useState(false)
+function DataSourceInfo({ manifest }: { manifest: Manifest | null }) {
   const snapshot = manifest?.snapshot
-  const archiveDate = snapshot?.archiveCreatedAt?.slice(0, 10)
-
   return (
-    <div className={`absolute bottom-4 z-30 max-w-[22rem] text-xs ${selectedNode ? 'right-4 md:right-[26rem]' : 'right-4'}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(value => !value)}
-        className={`${panelShell} w-full px-3 py-2 text-left transition-colors hover:border-[#f09199]/50`}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-medium text-slate-100">
-            数据快照 {archiveDate ?? 'unknown'}
-          </span>
-          <span className="text-[10px] text-[#d98d88]">
-            {open ? '收起' : '详情'}
-          </span>
-        </div>
-        <div className="mt-0.5 truncate text-[11px] text-slate-400">
-          Bangumi 公开记录可能不完整 · 以 Archive 证据为准
-        </div>
-      </button>
-
-      {open && (
-        <div className={`${panelShell} mt-2 space-y-2 px-3 py-2 text-[11px] leading-relaxed text-slate-300`}>
-          <div>
-            当前图谱来自本地 DuckDB 中的 Bangumi Archive 快照
-            {snapshot ? `：${snapshot.archiveName}` : '。'}
-          </div>
-          <div>
-            Bangumi 的人物、Staff、职位记录由公开资料和社区维护，可能存在缺失、滞后或同名歧义；关系强度只表示当前快照中可回溯的共同动画职位证据。
-          </div>
+    <Popover.Root>
+      <Popover.Trigger className={iconButton} aria-label="数据来源">
+        <Info size={16} />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align="end" sideOffset={8} className={`${panelShell} z-[60] w-80 space-y-2 p-3 text-sm leading-relaxed text-zinc-300`}>
+          <div className="font-medium text-zinc-100">数据来源</div>
+          <p>
+            Bangumi Archive 快照{snapshot ? `（${snapshot.archiveCreatedAt?.slice(0, 10)}）` : ''}，存放在 Neo4j 知识图谱中。
+          </p>
+          <p className="text-zinc-400">
+            人物、职位记录由社区维护，可能有缺失、滞后或同名歧义；连线只表示快照中能查到的共同动画职位。
+          </p>
           {snapshot?.sourceUrl && (
-            <a
-              href={snapshot.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={mutedLink}
-            >
-              Archive source →
+            <a href={snapshot.sourceUrl} target="_blank" rel="noopener noreferrer" className={mutedLink}>
+              {snapshot.archiveName}
             </a>
           )}
-        </div>
-      )}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
 
@@ -131,66 +95,25 @@ function constellationPath(mode: ConstellationMode, personAId?: string | null, p
   return `${basePath}?from=${encodeURIComponent(personAId)}&to=${encodeURIComponent(personBId)}`
 }
 
-function edgeKey(source: string, target: string) {
-  return source < target ? `${source}|${target}` : `${target}|${source}`
-}
-
-function mergePersonExpansion(baseData: LevelData, anchorId: string, expansionData: LevelData): LevelData {
-  const nodeById = new Map(baseData.nodes.map(node => [node.id, { ...node }]))
-  const anchor = nodeById.get(anchorId)
-  if (!anchor) return baseData
-
-  const anchorX = anchor.x ?? 0
-  const anchorY = anchor.y ?? 0
-  for (const node of expansionData.nodes) {
-    if (node.id === anchorId || nodeById.has(node.id)) continue
-    nodeById.set(node.id, {
-      ...node,
-      isCenter: false,
-      expandedFrom: anchorId,
-      x: anchorX + (node.x ?? 0) * PERSON_GALAXY_EXPANSION_SCALE,
-      y: anchorY + (node.y ?? 0) * PERSON_GALAXY_EXPANSION_SCALE,
-    })
-  }
-
-  const edges = [...baseData.edges]
-  const existingEdges = new Set(edges.map(edge => edgeKey(edge.source, edge.target)))
-  for (const edge of expansionData.edges) {
-    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue
-    const key = edgeKey(edge.source, edge.target)
-    if (existingEdges.has(key)) continue
-    edges.push({ ...edge, expandedFrom: anchorId })
-    existingEdges.add(key)
-  }
-
-  return { nodes: Array.from(nodeById.values()), edges }
-}
-
 export default function App() {
   const [globalData, setGlobalData] = useState<GlobalGraphData | null>(null)
-  const [graph, setGraph] = useState<Graph | null>(null)
-  const [level, setLevel] = useState<Level>('global')
-  const [loading, setLoading] = useState(true)
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [personGraphData, setPersonGraphData] = useState<LevelData | null>(null)
-  const [expandedNeighborId, setExpandedNeighborId] = useState<string | null>(null)
-  const [expandingNeighborId, setExpandingNeighborId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const [route, setRoute] = useState<AppRoute>(readRoute)
-  const [view, setView] = useState<ViewMode>(() => route.view)
   const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
-  const [personGalaxyLimit, setPersonGalaxyLimit] = useState(PERSON_GALAXY_LIMIT_DEFAULT)
-  const [personGalaxyMinShared, setPersonGalaxyMinShared] = useState(PERSON_GALAXY_MIN_SHARED_DEFAULT)
+  const [neighborLimit, setNeighborLimit] = useState(NEIGHBOR_LIMIT_DEFAULT)
+  const [neighborMinShared, setNeighborMinShared] = useState(NEIGHBOR_MIN_SHARED_DEFAULT)
+  const [neighborData, setNeighborData] = useState<LevelData | null>(null)
   const [manifest, setManifest] = useState<Manifest | null>(null)
+
+  // Selection is part of the URL (/person/:id) but never swaps the scene: the
+  // galaxy stays loaded and focuses the person in place.
+  const selectedNode = route.view === 'galaxy' ? route.personId ?? null : null
 
   useEffect(() => {
     let cancelled = false
     loadManifest()
-      .then(data => {
-        if (!cancelled) setManifest(data)
-      })
-      .catch(() => {
-        if (!cancelled) setManifest(null)
-      })
+      .then(data => { if (!cancelled) setManifest(data) })
+      .catch(() => { if (!cancelled) setManifest(null) })
     return () => { cancelled = true }
   }, [])
 
@@ -199,114 +122,56 @@ export default function App() {
   }, [personNameMode])
 
   useEffect(() => {
-    function handlePopState() {
-      setRoute(readRoute())
-    }
-
+    const handlePopState = () => setRoute(readRoute())
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  const loadPersonView = useCallback((personId: string, updateUrl = true) => {
-    const nextRoute = { view: 'galaxy' as const, personId }
-    setRoute(nextRoute)
-    if (updateUrl) {
-      writeRoute(`/person/${encodeURIComponent(personId)}`)
-    }
-  }, [])
-
-  const loadGlobalView = useCallback((updateUrl = true) => {
-    setRoute({ view: 'galaxy' })
-    if (updateUrl) {
-      writeRoute('/')
-    }
-  }, [])
-
+  const needsGalaxy = route.view === 'galaxy'
   useEffect(() => {
+    if (!needsGalaxy || globalData) return
     let cancelled = false
-
-    async function showGlobalGraph() {
-      const manifestData = await loadManifest()
-      const data = await loadGlobalGraph(manifestData)
-      if (cancelled) return
-      setGlobalData(data)
-      setGraph(null)
-      setLevel('global')
-      setSelectedNode(null)
-      setPersonGraphData(null)
-      setExpandedNeighborId(null)
-      setExpandingNeighborId(null)
-      setLoading(false)
-    }
-
-    async function applyRoute() {
-      if (route.view === 'constellation') {
-        setView('constellation')
-        setLoading(false)
-        return
-      }
-
-      setView('galaxy')
-      setLoading(true)
-
-      if (route.personId) {
-        try {
-          const data = await loadPersonGalaxy(route.personId, {
-            limit: personGalaxyLimit,
-            minShared: personGalaxyMinShared,
-          })
-          if (cancelled) return
-          setGraph(buildGraph(data))
-          setLevel('person')
-          setSelectedNode(route.personId)
-          setPersonGraphData(data)
-          setExpandedNeighborId(null)
-          setExpandingNeighborId(null)
-        } catch {
-          if (cancelled) return
-          await showGlobalGraph()
-          if (cancelled) return
-          setRoute({ view: 'galaxy' })
-          writeRoute('/', true)
-        } finally {
-          if (!cancelled) setLoading(false)
-        }
-        return
-      }
-
-      try {
-        await showGlobalGraph()
-      } catch (error) {
+    loadManifest()
+      .then(loadGlobalGraph)
+      .then(data => { if (!cancelled) setGlobalData(data) })
+      .catch(error => {
         console.error('Failed to load global graph', error)
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    void applyRoute()
+        if (!cancelled) setLoadError(true)
+      })
     return () => { cancelled = true }
-  }, [personGalaxyLimit, personGalaxyMinShared, route])
+  }, [globalData, needsGalaxy])
 
-  const payload = useMemo(() => {
-    if (level === 'person' && graph) return buildPersonPayload(graph, personNameMode)
-    if (level === 'global' && globalData) return buildGlobalPayload(globalData, personNameMode)
-    return null
-  }, [globalData, graph, level, personNameMode])
+  // Collaborator list for the side panel. People outside the galaxy have no
+  // backbone neighbors (404); the panel then shows an empty list.
+  useEffect(() => {
+    if (!selectedNode) {
+      setNeighborData(null)
+      return
+    }
+    let cancelled = false
+    setNeighborData(null)
+    loadPersonGalaxy(selectedNode, { limit: neighborLimit, minShared: neighborMinShared })
+      .then(data => { if (!cancelled) setNeighborData(data) })
+      .catch(() => { if (!cancelled) setNeighborData({ nodes: [], edges: [] }) })
+    return () => { cancelled = true }
+  }, [neighborLimit, neighborMinShared, selectedNode])
 
-  const handleNodeClick = useCallback((nodeId: string) => {
-    void loadPersonView(nodeId)
-  }, [loadPersonView])
+  const payload = useMemo(
+    () => (globalData ? buildGlobalPayload(globalData, personNameMode) : null),
+    [globalData, personNameMode],
+  )
 
-  const handleSearchSelect = useCallback((entry: { id: string }) => {
-    void loadPersonView(entry.id)
-  }, [loadPersonView])
+  const selectPerson = useCallback((personId: string) => {
+    setRoute({ view: 'galaxy', personId })
+    writeRoute(`/person/${encodeURIComponent(personId)}`)
+  }, [])
 
-  const handleConstellationNodeClick = useCallback((nodeId: string) => {
-    setView('galaxy')
-    void loadPersonView(nodeId)
-  }, [loadPersonView])
+  const clearSelection = useCallback(() => {
+    setRoute(current => (current.view === 'galaxy' && current.personId ? { view: 'galaxy' } : current))
+    if (window.location.pathname !== '/') writeRoute('/')
+  }, [])
 
   const openConstellation = useCallback(() => {
-    setView('constellation')
     setRoute({ view: 'constellation', constellationMode: 'path' })
     writeRoute('/path')
   }, [])
@@ -322,67 +187,38 @@ export default function App() {
   }, [route.constellationMode])
 
   const handleCompareCollaborator = useCallback((personAId: string, personBId: string) => {
-    setView('constellation')
-    setRoute({
-      view: 'constellation',
-      constellationMode: 'compare',
-      pathFrom: personAId,
-      pathTo: personBId,
-    })
+    setRoute({ view: 'constellation', constellationMode: 'compare', pathFrom: personAId, pathTo: personBId })
     writeRoute(constellationPath('compare', personAId, personBId))
   }, [])
 
-  const handleToggleNeighborExpansion = useCallback(async (neighborId: string) => {
-    if (level !== 'person' || !personGraphData) return
+  const selectedNodeAttrs = useMemo(() => {
+    if (!selectedNode) return null
+    const center = neighborData?.nodes.find(node => node.isCenter)
+    if (center) return center as unknown as Record<string, unknown>
+    const index = globalData?.nodeIndexById.get(selectedNode)
+    return index !== undefined ? (globalData!.meta[index] as unknown as Record<string, unknown>) : {}
+  }, [globalData, neighborData, selectedNode])
 
-    if (expandedNeighborId === neighborId) {
-      setGraph(buildGraph(personGraphData))
-      setExpandedNeighborId(null)
-      setExpandingNeighborId(null)
-      return
-    }
-
-    setExpandingNeighborId(neighborId)
-    try {
-      const expansionData = await loadPersonGalaxy(neighborId, {
-        limit: PERSON_GALAXY_EXPANSION_LIMIT,
-        minShared: personGalaxyMinShared,
-      })
-      const mergedData = mergePersonExpansion(personGraphData, neighborId, expansionData)
-      setGraph(buildGraph(mergedData))
-      setExpandedNeighborId(neighborId)
-    } finally {
-      setExpandingNeighborId(null)
-    }
-  }, [expandedNeighborId, level, personGalaxyMinShared, personGraphData])
-
-  const selectedNodeAttrs = selectedNode && graph?.hasNode(selectedNode)
-    ? graph.getNodeAttributes(selectedNode)
-    : null
-
-  const selectedNodeNeighbors = selectedNode && graph?.hasNode(selectedNode)
-    ? graph.neighbors(selectedNode)
-      .map(id => {
-        const edgeKey = graph.edge(selectedNode, id)
-        const edgeAttrs = edgeKey ? graph.getEdgeAttributes(edgeKey) : {}
+  const neighbors = useMemo(() => {
+    if (!selectedNode || !neighborData) return []
+    const edgeByNeighbor = new Map(neighborData.edges.map(edge => [edge.target, edge]))
+    return neighborData.nodes
+      .filter(node => !node.isCenter)
+      .map(node => {
+        const edge = edgeByNeighbor.get(node.id)
         return {
-          id,
-          attrs: graph.getNodeAttributes(id),
-          sharedWorksCount: Number(edgeAttrs.sharedWorksCount ?? 0),
-          collaborationScore: Number(edgeAttrs.collaborationScore ?? 0),
-          firstYear: (edgeAttrs.firstYear as number) ?? undefined,
-          lastYear: (edgeAttrs.lastYear as number) ?? undefined,
+          id: node.id,
+          attrs: node as unknown as Record<string, unknown>,
+          sharedWorksCount: edge?.sharedWorksCount ?? node.sharedWorksCount ?? 0,
+          collaborationScore: edge?.collaborationScore ?? node.collaborationScore ?? 0,
+          firstYear: edge?.firstYear ?? undefined,
+          lastYear: edge?.lastYear ?? undefined,
         }
       })
       .sort((a, b) => b.sharedWorksCount - a.sharedWorksCount)
-      .slice(0, personGalaxyLimit)
-    : []
+  }, [neighborData, selectedNode])
 
-  const selectedNodeNeighborTotal = selectedNode && graph?.hasNode(selectedNode)
-    ? graph.neighbors(selectedNode).length
-    : 0
-
-  if (view === 'constellation') {
+  if (route.view === 'constellation') {
     return (
       <Suspense fallback={<ViewLoading label="Loading constellation…" />}>
         <ConstellationView
@@ -390,100 +226,76 @@ export default function App() {
           mode={route.constellationMode ?? 'path'}
           initialPersonAId={route.pathFrom}
           initialPersonBId={route.pathTo}
-          onNodeClick={handleConstellationNodeClick}
+          onNodeClick={selectPerson}
           onRouteChange={handleConstellationRouteChange}
           personNameMode={personNameMode}
           onPersonNameModeChange={setPersonNameMode}
           onBack={() => {
-            setView('galaxy')
-            if (selectedNode) {
-              setRoute({ view: 'galaxy', personId: selectedNode })
-              writeRoute(`/person/${encodeURIComponent(selectedNode)}`)
-            } else {
-              setRoute({ view: 'galaxy' })
-              writeRoute('/')
-            }
+            setRoute({ view: 'galaxy' })
+            writeRoute('/')
           }}
         />
       </Suspense>
     )
   }
 
-  if (loading) {
+  if (!payload) {
     return (
-      <div className="flex items-center justify-center h-full bg-[#0a0a0f] text-slate-500 text-sm">
-        Loading galaxy…
+      <div className="flex h-full items-center justify-center bg-[#0b0c10] text-sm text-zinc-500">
+        {loadError ? '星系加载失败，请检查后端与 Neo4j 是否在运行。' : 'Loading galaxy…'}
       </div>
     )
   }
 
   return (
-    <div className="relative w-full h-full">
-      {payload && (
+    <Tooltip.Provider delayDuration={300}>
+      <div className="flex h-full w-full">
+      {/* The sidebar is docked (not floating) so the galaxy's visible center is
+          the canvas center: camera glides land on the person, uncovered. */}
+      <div className="relative h-full min-w-0 flex-1">
         <Suspense fallback={<ViewLoading label="Loading graph renderer…" />}>
           <CosmosGalaxyView
             payload={payload}
-            onNodeClick={handleNodeClick}
-            level={level}
             selectedNode={selectedNode}
-            onBackToGlobal={() => loadGlobalView()}
+            onNodeClick={selectPerson}
+            onBackgroundClick={clearSelection}
           />
         </Suspense>
-      )}
 
-      <div className="absolute top-4 left-4 right-4 flex items-center gap-3 z-30 pointer-events-none">
-        <div className={`${panelShell} flex shrink-0 items-center gap-3 px-3 py-2`}>
-          <div className="h-8 w-1 rounded-full bg-[#f09199]" />
-          <div>
-            <div className="whitespace-nowrap text-sm font-semibold tracking-[0.22em] text-slate-100 uppercase">
-              Staff Galaxy
-            </div>
-            <div className="whitespace-nowrap text-[10px] uppercase tracking-[0.16em] text-[#d98d88]">
-              Bangumi Archive
-            </div>
+        <header className="pointer-events-none absolute inset-x-4 top-3 z-50 flex items-center gap-3">
+          <div className="pointer-events-auto flex items-center gap-3">
+            <span className="whitespace-nowrap text-sm font-semibold text-zinc-100">Staff Galaxy</span>
+            <SearchBar onSelect={entry => selectPerson(entry.id)} personNameMode={personNameMode} className="w-72" />
           </div>
-        </div>
-        <div className="pointer-events-auto">
-          <SearchBar onSelect={handleSearchSelect} personNameMode={personNameMode} className="w-64" />
-        </div>
-        <div className="pointer-events-auto">
-          <button
-            type="button"
-            onClick={openConstellation}
-            className={`${panelShell} shrink-0 whitespace-nowrap px-3 py-2 text-xs text-slate-300 transition-colors hover:border-[#6baae8]/45 hover:text-[#d9ecff]`}
-          >
-            关系星图
-          </button>
-        </div>
-        <div className="ml-auto hidden rounded-full border border-[#f09199]/25 bg-black/30 px-2 py-1 text-[10px] tracking-wider text-slate-400 backdrop-blur lg:block">
-          {LEVEL_LABELS[level]}
-        </div>
-        <div className="pointer-events-auto">
-          <NameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
-        </div>
+          <div className="pointer-events-auto ml-auto flex items-center gap-2">
+            <div className={segmentedGroupClass}>
+              <span className={segmentedButtonClass(true)}>星系</span>
+              <button type="button" onClick={openConstellation} className={segmentedButtonClass(false)}>
+                关系星图
+              </button>
+            </div>
+            <NameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
+            <DataSourceInfo manifest={manifest} />
+          </div>
+        </header>
       </div>
 
-      <DataSourceNotice manifest={manifest} selectedNode={selectedNode} />
-
-      {selectedNode && selectedNodeAttrs && (
-        <NodePanel
-          nodeId={selectedNode}
-          nodeAttrs={selectedNodeAttrs}
-          neighbors={selectedNodeNeighbors}
-          neighborTotal={selectedNodeNeighborTotal}
-          neighborLimit={personGalaxyLimit}
-          neighborMinShared={personGalaxyMinShared}
-          onNeighborLimitChange={setPersonGalaxyLimit}
-          onNeighborMinSharedChange={setPersonGalaxyMinShared}
-          personNameMode={personNameMode}
-          onClose={() => setSelectedNode(null)}
-          onNodeClick={handleNodeClick}
-          onCompare={handleCompareCollaborator}
-          expandedNeighborId={expandedNeighborId}
-          expandingNeighborId={expandingNeighborId}
-          onToggleNeighborExpansion={handleToggleNeighborExpansion}
-        />
-      )}
-    </div>
+        {selectedNode && selectedNodeAttrs && (
+          <PersonSidebar
+            personId={selectedNode}
+            galaxyAttrs={selectedNodeAttrs}
+            neighbors={neighbors}
+            neighborLimit={neighborLimit}
+            neighborMinShared={neighborMinShared}
+            onNeighborLimitChange={setNeighborLimit}
+            onNeighborMinSharedChange={setNeighborMinShared}
+            nameMode={personNameMode}
+            onClose={clearSelection}
+            onSelectPerson={selectPerson}
+            onCompare={handleCompareCollaborator}
+          />
+        )}
+      </div>
+    </Tooltip.Provider>
   )
 }

@@ -15,7 +15,7 @@ export function NameModeToggle({
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={segmentedButtonClass(mode === option, 'cyan')}
+          className={segmentedButtonClass(mode === option)}
         >
           {option === 'original' ? '原名' : option === 'cn' ? '简中' : '繁中'}
         </button>

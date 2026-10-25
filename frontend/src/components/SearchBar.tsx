@@ -3,7 +3,8 @@ import { searchPersons } from '../data/loader'
 import { personUrl } from '../data/links'
 import { displayPersonName, secondaryPersonName } from '../data/personNames'
 import type { PersonNameMode, SearchEntry } from '../types'
-import { mutedLink, panelShell, sectionLabel, subtleLink } from './ui'
+import { ExternalLink, Search, X } from 'lucide-react'
+import { iconButton, panelShell } from './ui'
 
 interface SearchBarProps {
   onSelect: (entry: SearchEntry) => void
@@ -115,30 +116,28 @@ export function SearchBar({
           onClick={() => inputRef.current?.focus()}
         >
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm text-slate-200">{selectedName}</span>
+            <span className="block truncate text-sm text-zinc-100">{selectedName}</span>
             {selectedSecondary && (
-              <span className="block truncate text-[10px] text-slate-600">{selectedSecondary}</span>
+              <span className="block truncate text-xs text-zinc-500">{selectedSecondary}</span>
             )}
-          </span>
-          <span className="rounded-full border border-[#f09199]/25 bg-black/25 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-400">
-            #{selectedEntry.id}
           </span>
           <a
             href={personUrl(selectedEntry.id)}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className={mutedLink}
+            className={iconButton}
             title="打开 Bangumi 人物页"
           >
-            ↗
+            <ExternalLink size={14} />
           </a>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); handleClear() }}
-            className="px-0.5 text-sm leading-none text-slate-500 transition-colors hover:text-pink-300"
+            className={iconButton}
+            title="清除"
           >
-            ×
+            <X size={15} />
           </button>
         </div>
         {/* Hidden input to capture keyboard events (Backspace to clear) */}
@@ -160,6 +159,7 @@ export function SearchBar({
   // Normal mode: search input
   return (
     <div ref={ref} className={`relative ${className}`}>
+      <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
       <input
         ref={inputRef}
         type="text"
@@ -167,18 +167,17 @@ export function SearchBar({
         onChange={e => setQuery(e.target.value)}
         onFocus={() => { if (results.length > 0) setOpen(true) }}
         onKeyDown={handleKeyDown}
-        placeholder="搜索人名或Bangumi ID…"
-        className={`${panelShell} w-full px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-500 focus:border-[#f09199]/60`}
+        placeholder="搜索人名或 Bangumi ID"
+        className={`${panelShell} w-full py-2 pl-8 pr-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-[#f5c76b]/60`}
         autoComplete="off"
       />
       {loading && query.length >= 1 && (
         <div className="absolute right-3 top-1/2 -translate-y-1/2">
-          <div className="w-3.5 h-3.5 border border-slate-500 border-t-transparent rounded-full animate-spin" />
+          <div className="h-3.5 w-3.5 animate-spin rounded-full border border-zinc-500 border-t-transparent" />
         </div>
       )}
       {open && results.length > 0 && (
         <ul className={`${panelShell} absolute top-full z-50 mt-1 max-h-80 w-full overflow-y-auto py-1`}>
-          <li className={`${sectionLabel} px-3 py-1`}>人物搜索</li>
           {results.map((entry, idx) => {
             const name = displayPersonName(entry, personNameMode)
             const secondary = secondaryPersonName(entry, personNameMode)
@@ -186,9 +185,7 @@ export function SearchBar({
             <li key={entry.id} className="flex items-stretch">
               <button
                 className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
-                  idx === selectedIdx
-                    ? 'bg-[#9b2838]/35 text-rose-50'
-                    : 'text-slate-200 hover:bg-[#f09199]/10'
+                  idx === selectedIdx ? 'bg-white/[0.07] text-zinc-50' : 'text-zinc-200'
                 }`}
                 onClick={() => commit(entry)}
                 onMouseEnter={() => setSelectedIdx(idx)}
@@ -196,25 +193,22 @@ export function SearchBar({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{name}</span>
                   {secondary && (
-                    <span className="block truncate text-[10px] text-slate-600">{secondary}</span>
+                    <span className="block truncate text-xs text-zinc-500">{secondary}</span>
                   )}
                 </span>
-                <span className="shrink-0 rounded-full border border-[#6baae8]/25 bg-[#0f3e75]/35 px-1.5 py-0.5 text-[10px] tabular-nums text-[#b9d8f4]">
-                  d{entry.degree}
-                </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-slate-700">
-                  #{entry.id}
+                <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                  {entry.degree} 位合作者
                 </span>
               </button>
               <a
                 href={personUrl(entry.id)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`${subtleLink} flex items-center px-2 text-[10px] hover:bg-slate-900/70`}
+                className={`${iconButton} my-auto mr-1`}
                 title="打开 Bangumi 人物页"
                 onMouseEnter={() => setSelectedIdx(idx)}
               >
-                ↗
+                <ExternalLink size={14} />
               </a>
             </li>
           )})}

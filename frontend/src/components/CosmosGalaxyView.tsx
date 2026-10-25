@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Graph as CosmosGraph } from '@cosmos.gl/graph'
-import type { Level } from '../data/loader'
+import { Popover, Slider } from 'radix-ui'
+import { Settings2 } from 'lucide-react'
 import type { CosmosPayload } from '../data/cosmosPayload'
 import { COSMOS_SPACE_SIZE } from '../data/cosmosPayload'
 import { recordRuntimeMetric } from '../data/runtimeMetrics'
+import { iconButton, panelShell } from './ui'
 
 interface CosmosGalaxyViewProps {
   payload: CosmosPayload
-  onNodeClick: (nodeId: string) => void
-  level: Level
   selectedNode: string | null
-  onBackToGlobal: () => void
+  onNodeClick: (nodeId: string) => void
+  onBackgroundClick: () => void
 }
 
 interface GraphLabel {
@@ -18,38 +19,45 @@ interface GraphLabel {
   label: string
   x: number
   y: number
+  center: boolean
 }
 
-const SEARCH_ZOOM_SCALE = 3.8
-
 // Edge count to keep on screen at the current zoom level, taken as a prefix of the
-// strength-sorted edge arrays. The full 529K-edge set is always resident; these
-// tiers only decide how much of it is on the GPU at once.
-function edgeBudgetForZoom(level: Level, zoom: number, totalEdgeCount: number): number {
-  if (level === 'person') return totalEdgeCount
+// strength-sorted edge arrays. All edges stay uploaded; budgets only zero the
+// widths past the prefix, so a budget change never rebuilds link buffers.
+function edgeBudgetForZoom(zoom: number): number {
   if (zoom > 1.1) return 30_000
   if (zoom > 0.75) return 80_000
   return 160_000
 }
 
+const FOCUS_LABEL_LIMIT = 14
+const FOCUS_CAMERA_MS = 650
+const FOCUS_ZOOM = 2.4
+// Base edge colors are deliberately faint (alpha ~0.04-0.13); the selected
+// person's edges are repainted in this warm tone so their circle reads at a glance.
+const FOCUS_EDGE_RGBA = [245 / 255, 199 / 255, 107 / 255, 0.55] as const
+// cosmos.gl redraws every animation frame forever; on a fanless laptop that keeps
+// the GPU busy even when nothing moves. Rendering pauses after this much quiet.
+const IDLE_PAUSE_MS = 1500
+
 const COSMOS_CONFIG = {
-  backgroundColor: '#0a0a0f',
+  backgroundColor: '#0b0c10',
   enableSimulation: false,
   // Keep v2's instant-snap updates; v3 defaults to 800ms animated transitions on
   // position/color/size/width changes, which would visibly lag every LOD/hover step.
   transitionDuration: 0,
   spaceSize: COSMOS_SPACE_SIZE,
   rescalePositions: false,
-  fitViewOnInit: true,
-  fitViewDelay: 80,
-  fitViewDuration: 320,
-  fitViewPadding: 0.18,
+  // The initial view is set by this component (fit, or glide to a deep-linked
+  // person); cosmos.gl's own delayed fit would override that camera move.
+  fitViewOnInit: false,
   hoveredPointCursor: 'pointer',
   renderHoveredPointRing: true,
-  hoveredPointRingColor: '#f8fafc',
-  focusedPointRingColor: '#fef08a',
+  hoveredPointRingColor: '#fafafa',
+  focusedPointRingColor: '#f5c76b',
   pointDefaultColor: '#cbd5e1',
-  pointGreyoutOpacity: 0.03,
+  pointGreyoutOpacity: 0.06,
   pointOpacity: 0.92,
   pointSizeScale: 0.85,
   linkDefaultColor: [148 / 255, 163 / 255, 184 / 255, 0.1] as [number, number, number, number],
@@ -64,18 +72,32 @@ const COSMOS_CONFIG = {
 
 const MIN_EDGE_BUDGET = 20_000
 
+const sliderRoot = 'relative flex h-4 w-full touch-none select-none items-center'
+const sliderTrack = 'relative h-1 grow rounded bg-white/10'
+const sliderRange = 'absolute h-full rounded bg-[#f5c76b]'
+const sliderThumb = 'block h-3.5 w-3.5 rounded-full bg-zinc-100 shadow focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#f5c76b]'
+
+// startFrames/stopFrames are TypeScript-private in cosmos.gl but are the only way
+// to pause its render loop. Feature-detected: if a release drops them, rendering
+// simply stays continuous (the previous behavior). requestAnimationFrameId is 0
+// while paused; startFrames must only run then — hover callbacks fire inside a
+// frame, and restarting there would fork a second render loop.
+type FrameControl = { startFrames?: () => void; stopFrames?: () => void; requestAnimationFrameId?: number }
+
 export function CosmosGalaxyView({
   payload,
-  onNodeClick,
-  level,
   selectedNode,
-  onBackToGlobal,
+  onNodeClick,
+  onBackgroundClick,
 }: CosmosGalaxyViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const cosmosRef = useRef<CosmosGraph | null>(null)
   const payloadRef = useRef<CosmosPayload | null>(null)
   const selectedNodeRef = useRef<string | null>(selectedNode)
   const edgeCountRef = useRef(0)
+  const widthsRef = useRef<Float32Array | null>(null)
+  const labelIndicesRef = useRef<number[]>([])
+  const idleTimerRef = useRef(0)
   const applyEdgeDensityRef = useRef<(() => void) | null>(null)
   const hoverLabelRef = useRef<HTMLDivElement | null>(null)
   const hoveredNodeRef = useRef<string | null>(null)
@@ -83,25 +105,32 @@ export function CosmosGalaxyView({
   const highlightedPointerPositionRef = useRef<[number, number] | null>(null)
   const minDegreeRef = useRef(0)
   const edgeBudgetOverrideRef = useRef(0)
+  // Callbacks live in refs so a parent re-render never recreates the WebGL graph.
+  const onNodeClickRef = useRef(onNodeClick)
+  const onBackgroundClickRef = useRef(onBackgroundClick)
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0)
   const [edgeCutoff, setEdgeCutoff] = useState(0)
-  const [defaultLabels, setDefaultLabels] = useState<GraphLabel[]>([])
+  const [labels, setLabels] = useState<GraphLabel[]>([])
   const [minDegree, setMinDegree] = useState(0)
   const [edgeBudgetSlider, setEdgeBudgetSlider] = useState(0)
 
-  const focusNode = useCallback((nodeId: string, animate = true) => {
-    const cosmos = cosmosRef.current
-    const payload = payloadRef.current
-    if (!cosmos || !payload) return false
+  // Resume rendering and re-arm the idle pause. Call after anything that changes
+  // what is on screen (config, data, camera) and on every pointer/wheel input.
+  const wake = useCallback((busyMs = 0) => {
+    const frames = cosmosRef.current as unknown as FrameControl | null
+    if (!frames?.startFrames || !frames.stopFrames) return
+    window.clearTimeout(idleTimerRef.current)
+    if (!frames.requestAnimationFrameId) frames.startFrames()
+    idleTimerRef.current = window.setTimeout(() => frames.stopFrames?.(), busyMs + IDLE_PAUSE_MS)
+  }, [])
 
-    const index = payload.nodeIndexById.get(nodeId)
-    if (index === undefined) return false
+  // Links incident to a point, strongest first (incidence lists are in sorted order).
+  const egoLinks = useCallback((index: number) => payloadRef.current?.pointToLinkIndices[index] ?? [], [])
 
-    cosmos.setConfigPartial({ focusedPointIndex: index })
-    // Explicit enableSimulation=false: this layout is static/precomputed, and letting
-    // the zoom transition run physics (v3 default) would drift points during the animation.
-    if (animate) cosmos.zoomToPointByIndex(index, 420, SEARCH_ZOOM_SCALE, false, false)
-    return true
+  const otherEnd = useCallback((linkIndex: number, index: number) => {
+    const links = payloadRef.current!.sortedLinks
+    const source = links[linkIndex * 2]
+    return source === index ? links[linkIndex * 2 + 1] : source
   }, [])
 
   const applyEdgeDensity = useCallback((force = false) => {
@@ -109,135 +138,111 @@ export function CosmosGalaxyView({
     const payload = payloadRef.current
     if (!cosmos || !payload) return
 
-    const zoom = cosmos.getZoomLevel()
     const budget = edgeBudgetOverrideRef.current > 0
       ? edgeBudgetOverrideRef.current
-      : edgeBudgetForZoom(level, zoom, payload.totalEdgeCount)
+      : edgeBudgetForZoom(cosmos.getZoomLevel())
     const n = Math.min(budget, payload.totalEdgeCount)
     if (!force && n === edgeCountRef.current) return
 
-    // Zero-copy prefix slices — no per-frame filter/allocation/GC pressure.
-    cosmos.setLinks(payload.sortedLinks.subarray(0, n * 2))
-    cosmos.setLinkColors(payload.sortedLinkColors.subarray(0, n * 4))
-    cosmos.setLinkWidths(payload.sortedLinkWidths.subarray(0, n))
+    // Edges past the budget get width 0 (no fragments drawn). The selected
+    // person's own edges are always drawn, whatever the budget.
+    const widths = new Float32Array(payload.totalEdgeCount)
+    widths.set(payload.sortedLinkWidths.subarray(0, n))
+    const selectedIndex = selectedNodeRef.current ? payload.nodeIndexById.get(selectedNodeRef.current) : undefined
+    if (selectedIndex !== undefined) {
+      for (const li of payload.pointToLinkIndices[selectedIndex]) widths[li] = payload.sortedLinkWidths[li] * 2.2
+    }
+    widthsRef.current = widths
+    cosmos.setLinkWidths(widths)
     cosmos.render()
+    wake()
 
     edgeCountRef.current = n
     setVisibleEdgeCount(n)
     setEdgeCutoff(n > 0 ? payload.sortedSharedCounts[n - 1] : 0)
-  }, [level])
+  }, [wake])
 
-  // Base (non-hover) highlight: the min-degree filter dims every point below the
-  // threshold via v3 greyout. Hover replaces this with the neighborhood set;
-  // mouseout restores it.
+  // Resting highlight: the selected person's collaboration circle if any,
+  // otherwise the min-degree filter. Hover temporarily replaces it.
   const applyBaseHighlight = useCallback(() => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
-    if (!cosmos || !payload || level === 'person') return
+    if (!cosmos || !payload) return
 
-    if (minDegreeRef.current <= 0) {
+    const selectedIndex = selectedNodeRef.current ? payload.nodeIndexById.get(selectedNodeRef.current) : undefined
+    if (selectedIndex !== undefined) {
+      const links = egoLinks(selectedIndex)
+      cosmos.setConfigPartial({
+        highlightedPointIndices: [selectedIndex, ...links.map(li => otherEnd(li, selectedIndex))],
+        highlightedLinkIndices: links,
+      })
+    } else if (minDegreeRef.current > 0) {
+      const threshold = minDegreeRef.current
+      const indices: number[] = []
+      for (let i = 0; i < payload.degrees.length; i += 1) {
+        if (payload.degrees[i] >= threshold) indices.push(i)
+      }
+      cosmos.setConfigPartial({ highlightedPointIndices: indices, highlightedLinkIndices: undefined })
+    } else {
       cosmos.setConfigPartial({ highlightedPointIndices: undefined, highlightedLinkIndices: undefined })
-      cosmos.render()
-      return
     }
-    const threshold = minDegreeRef.current
-    const indices: number[] = []
-    for (let i = 0; i < payload.degrees.length; i += 1) {
-      if (payload.degrees[i] >= threshold) indices.push(i)
-    }
-    cosmos.setConfigPartial({ highlightedPointIndices: indices, highlightedLinkIndices: undefined })
-    cosmos.render()
-  }, [level])
+    wake()
+  }, [egoLinks, otherEnd, wake])
 
-  // Hover highlight is pure GPU-side config (v3 highlightedPointIndices /
-  // highlightedLinkIndices) driven by the precomputed pointToLinkIndices
-  // incidence map — O(degree), not O(edges). (cosmos.gl's own
-  // getConnectedLinkIndices requires BOTH endpoints in the given set, so it
-  // can't answer "edges touching this one point" — see CosmosPayload comment.)
+  // Hover highlight is pure GPU-side config driven by the precomputed incidence
+  // map — O(degree), not O(edges).
   const applyHoverEdgeFocus = useCallback((index?: number) => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
-    if (!cosmos || !payload || level === 'person') return
-
+    if (!cosmos || !payload) return
     if (index === undefined) {
       applyBaseHighlight()
       return
     }
-
-    const visibleCount = edgeCountRef.current
-    const linkIndices = (payload.pointToLinkIndices[index] ?? []).filter(li => li < visibleCount)
-    const neighborIndices = linkIndices.map(li => {
-      const source = payload.sortedLinks[li * 2]
-      const target = payload.sortedLinks[li * 2 + 1]
-      return source === index ? target : source
-    })
+    const widths = widthsRef.current
+    const links = egoLinks(index).filter(li => !widths || widths[li] > 0)
     cosmos.setConfigPartial({
-      highlightedPointIndices: [index, ...neighborIndices],
-      highlightedLinkIndices: linkIndices,
+      highlightedPointIndices: [index, ...links.map(li => otherEnd(li, index))],
+      highlightedLinkIndices: links,
     })
-  }, [applyBaseHighlight, level])
+    wake()
+  }, [applyBaseHighlight, egoLinks, otherEnd, wake])
 
-  const updateDefaultLabels = useCallback(() => {
+  const updateLabels = useCallback(() => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
     const container = containerRef.current
-    if (!cosmos || !payload || !container) {
-      setDefaultLabels([])
-      return
-    }
-    if (payload.defaultLabelIndices.length === 0) {
-      setDefaultLabels(current => current.length > 0 ? [] : current)
+    if (!cosmos || !payload || !container || labelIndicesRef.current.length === 0) {
+      setLabels(current => (current.length > 0 ? [] : current))
       return
     }
 
     const bounds = container.getBoundingClientRect()
-    const labels: GraphLabel[] = []
+    const next: GraphLabel[] = []
     const boxes: { left: number; right: number; top: number; bottom: number }[] = []
-    const showAllPersonalLabels = level === 'person' && payload.defaultLabelIndices.length > 1
-    for (const index of payload.defaultLabelIndices) {
-      const label = payload.nodeLabels.get(payload.nodeIds[index]) ?? payload.nodeIds[index]
-      const [x, y] = cosmos.spaceToScreenPosition([
-        payload.positions[index * 2],
-        payload.positions[index * 2 + 1],
-      ])
+    labelIndicesRef.current.forEach((index, order) => {
+      const id = payload.nodeIds[index]
+      const label = payload.nodeLabels.get(id) ?? id
+      const [x, y] = cosmos.spaceToScreenPosition([payload.positions[index * 2], payload.positions[index * 2 + 1]])
       const width = Math.min(180, Math.max(52, label.length * 12 + 18))
-      const box = {
-        left: x - width / 2,
-        right: x + width / 2,
-        top: y - 28,
-        bottom: y - 4,
-      }
-      if (box.left < 8 || box.top < 76 || box.right > bounds.width - 8 || box.bottom > bounds.height - 8) continue
-      if (!showAllPersonalLabels && boxes.some(existing => (
-        box.left < existing.right
-        && box.right > existing.left
-        && box.top < existing.bottom
-        && box.bottom > existing.top
-      ))) continue
-
+      const box = { left: x - width / 2, right: x + width / 2, top: y - 28, bottom: y - 4 }
+      if (box.left < 8 || box.top < 76 || box.right > bounds.width - 8 || box.bottom > bounds.height - 8) return
+      // The selected person's label always wins; neighbors skip on overlap.
+      if (order > 0 && boxes.some(b => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)) return
       boxes.push(box)
-      labels.push({
-        id: payload.nodeIds[index],
-        label,
-        x,
-        y,
-      })
-    }
-    setDefaultLabels(labels)
-  }, [level])
+      next.push({ id, label, x, y, center: order === 0 })
+    })
+    setLabels(next)
+  }, [])
 
   const updateHoverLabelPosition = useCallback((nodeId = hoveredNodeRef.current) => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
     const el = hoverLabelRef.current
     if (!cosmos || !payload || !el || !nodeId) return
-
     const index = payload.nodeIndexById.get(nodeId)
     if (index === undefined) return
-    const [x, y] = cosmos.spaceToScreenPosition([
-      payload.positions[index * 2],
-      payload.positions[index * 2 + 1],
-    ])
+    const [x, y] = cosmos.spaceToScreenPosition([payload.positions[index * 2], payload.positions[index * 2 + 1]])
     el.style.left = `${x}px`
     el.style.top = `${y}px`
   }, [])
@@ -247,10 +252,8 @@ export function CosmosGalaxyView({
     hoveredNodeRef.current = nodeId
     const el = hoverLabelRef.current
     if (!el) return
-
     if (nodeId) {
-      const label = payloadRef.current?.nodeLabels.get(nodeId) ?? nodeId
-      el.textContent = label
+      el.textContent = payloadRef.current?.nodeLabels.get(nodeId) ?? nodeId
       updateHoverLabelPosition(nodeId)
       el.classList.remove('opacity-0')
     } else {
@@ -264,31 +267,74 @@ export function CosmosGalaxyView({
     applyHoverEdgeFocus()
   }, [applyHoverEdgeFocus, showHoverLabel])
 
+  // Select = focus in place: highlight the collaboration circle, force its edges
+  // visible, label the strongest neighbors and glide the camera to frame them.
+  const focusSelection = useCallback((animate: boolean) => {
+    const cosmos = cosmosRef.current
+    const payload = payloadRef.current
+    if (!cosmos || !payload) return
+    const index = selectedNodeRef.current ? payload.nodeIndexById.get(selectedNodeRef.current) : undefined
+    if (index === undefined) {
+      cosmos.setLinkColors(payload.sortedLinkColors)
+    } else {
+      const colors = payload.sortedLinkColors.slice()
+      for (const li of payload.pointToLinkIndices[index]) colors.set(FOCUS_EDGE_RGBA, li * 4)
+      cosmos.setLinkColors(colors)
+    }
+    applyEdgeDensity(true)
+    applyBaseHighlight()
+    if (index === undefined) {
+      cosmos.setConfigPartial({ focusedPointIndex: undefined })
+      labelIndicesRef.current = []
+      updateLabels()
+      wake()
+      return
+    }
+    const links = egoLinks(index)
+    const neighbors = links.map(li => otherEnd(li, index))
+    labelIndicesRef.current = [index, ...neighbors.slice(0, FOCUS_LABEL_LIMIT)]
+    cosmos.setConfigPartial({ focusedPointIndex: index })
+    if (animate) {
+      // Glide to the person. Their collaborators often sit in other Leiden
+      // communities, so framing the whole circle would zoom out to the galaxy;
+      // the bright edges show where the circle reaches instead.
+      // Two frames: the first lets cosmos.gl pick up a canvas resized by the
+      // sidebar opening, so the glide centers on the new visible area.
+      wake(FOCUS_CAMERA_MS + 100)
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        cosmos.zoomToPointByIndex(index, FOCUS_CAMERA_MS, FOCUS_ZOOM, true, false)
+        window.setTimeout(updateLabels, FOCUS_CAMERA_MS + 30)
+      }))
+    } else {
+      updateLabels()
+      wake()
+    }
+  }, [applyBaseHighlight, applyEdgeDensity, egoLinks, otherEnd, updateLabels, wake])
+
   useEffect(() => {
     applyEdgeDensityRef.current = () => applyEdgeDensity()
   }, [applyEdgeDensity])
 
   useEffect(() => {
-    const handleResize = () => {
-      updateDefaultLabels()
-      updateHoverLabelPosition()
-    }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [updateDefaultLabels, updateHoverLabelPosition])
+    onNodeClickRef.current = onNodeClick
+    onBackgroundClickRef.current = onBackgroundClick
+  }, [onBackgroundClick, onNodeClick])
 
+  // cosmos.gl resizes its canvas inside a render frame, so a container resize
+  // (window, or the docked sidebar opening) must wake the paused loop.
   useEffect(() => {
-    selectedNodeRef.current = selectedNode
-    if (!selectedNode) {
-      cosmosRef.current?.setConfigPartial({ focusedPointIndex: undefined })
-      return
-    }
-    focusNode(selectedNode, false)
-  }, [focusNode, selectedNode])
-
-  useEffect(() => {
-    payloadRef.current = payload
-  }, [payload])
+    const container = containerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(() => {
+      wake()
+      window.requestAnimationFrame(() => {
+        updateLabels()
+        updateHoverLabelPosition()
+      })
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [updateHoverLabelPosition, updateLabels, wake])
 
   useEffect(() => {
     const container = containerRef.current
@@ -298,14 +344,9 @@ export function CosmosGalaxyView({
       ...COSMOS_CONFIG,
       onPointClick: (index: number) => {
         const nodeId = payloadRef.current?.nodeIds[index]
-        if (!nodeId) return
-        selectedNodeRef.current = nodeId
-        onNodeClick(nodeId)
-        focusNode(nodeId, false)
+        if (nodeId) onNodeClickRef.current(nodeId)
       },
-      onBackgroundClick: () => {
-        cosmos.setConfigPartial({ focusedPointIndex: undefined })
-      },
+      onBackgroundClick: () => onBackgroundClickRef.current(),
       onPointMouseOver: (index: number) => {
         highlightedPointerPositionRef.current = lastPointerPositionRef.current
         showHoverLabel(payloadRef.current?.nodeIds[index] ?? null)
@@ -326,29 +367,30 @@ export function CosmosGalaxyView({
       },
       onZoomEnd: () => {
         applyEdgeDensityRef.current?.()
-        updateDefaultLabels()
+        updateLabels()
         updateHoverLabelPosition()
       },
       onZoom: () => {
-        updateDefaultLabels()
-        updateHoverLabelPosition()
-      },
-      onDrag: () => {
-        updateDefaultLabels()
-        updateHoverLabelPosition()
-      },
-      onDragEnd: () => {
-        updateDefaultLabels()
+        updateLabels()
         updateHoverLabelPosition()
       },
     })
-
     cosmosRef.current = cosmos
+
+    // Any input over the canvas resumes rendering (hover detection runs per frame).
+    const onInput = () => wake()
+    container.addEventListener('pointermove', onInput, { passive: true })
+    container.addEventListener('pointerdown', onInput, { passive: true })
+    container.addEventListener('wheel', onInput, { passive: true })
     return () => {
+      container.removeEventListener('pointermove', onInput)
+      container.removeEventListener('pointerdown', onInput)
+      container.removeEventListener('wheel', onInput)
+      window.clearTimeout(idleTimerRef.current)
       cosmos.destroy()
       cosmosRef.current = null
     }
-  }, [applyHoverEdgeFocus, clearHoverEdgeFocus, focusNode, onNodeClick, showHoverLabel, updateDefaultLabels, updateHoverLabelPosition])
+  }, [applyHoverEdgeFocus, clearHoverEdgeFocus, showHoverLabel, updateHoverLabelPosition, updateLabels, wake])
 
   useEffect(() => {
     const cosmos = cosmosRef.current
@@ -358,57 +400,61 @@ export function CosmosGalaxyView({
     cosmos.setPointPositions(payload.positions)
     cosmos.setPointColors(payload.pointColors)
     cosmos.setPointSizes(payload.pointSizes)
-    applyEdgeDensity(true)
-    applyBaseHighlight()
-    window.setTimeout(() => {
-      cosmos.fitView(0, 0.18, false)
-      window.requestAnimationFrame(updateDefaultLabels)
-    }, 0)
-
-    if (selectedNode && level !== 'person') {
-      focusNode(selectedNode, false)
-    } else if (level === 'person') {
+    // Upload every edge once; LOD and focus only rewrite widths from here on.
+    cosmos.setLinks(payload.sortedLinks)
+    cosmos.setLinkColors(payload.sortedLinkColors)
+    if (selectedNodeRef.current) {
+      focusSelection(true)
+    } else {
+      focusSelection(false)
       window.setTimeout(() => {
-        cosmos.fitView(260, 0.28, false)
-        window.setTimeout(updateDefaultLabels, 280)
-      }, 120)
+        cosmos.fitView(0, 0.18, false)
+        wake()
+      }, 0)
     }
 
     window.requestAnimationFrame(() => {
       recordRuntimeMetric('cosmos-ready', {
-        level,
+        level: 'global',
         nodes: payload.nodeIds.length,
         totalEdges: payload.totalEdgeCount,
         visibleEdges: edgeCountRef.current,
         edgeCutoff: edgeCountRef.current > 0 ? payload.sortedSharedCounts[edgeCountRef.current - 1] : 0,
       })
-      updateDefaultLabels()
     })
-  }, [applyBaseHighlight, applyEdgeDensity, focusNode, level, payload, selectedNode, updateDefaultLabels])
+    // focusSelection is stable for a given payload; selection changes are handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload])
 
-  const centerNodeName = level === 'person' && selectedNode
-    ? payload.nodeLabels.get(selectedNode) ?? null
-    : null
+  useEffect(() => {
+    if (selectedNodeRef.current === selectedNode) return
+    selectedNodeRef.current = selectedNode
+    focusSelection(true)
+  }, [focusSelection, selectedNode])
 
   const edgeBudgetDisplay = edgeBudgetOverrideRef.current > 0
     ? edgeBudgetOverrideRef.current.toLocaleString()
     : 'auto'
 
   return (
-    <div className="relative w-full h-full bg-[#0a0a0f]">
+    <div className="relative h-full w-full bg-[#0b0c10]">
       <div ref={containerRef} className="w-full h-full" onMouseLeave={clearHoverEdgeFocus} />
 
       {/* Hover label — DOM-only, no React re-render on hover */}
       <div
         ref={hoverLabelRef}
-        className="absolute -translate-x-1/2 -translate-y-[140%] z-20 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-600/50 text-sm text-slate-100 backdrop-blur shadow-lg pointer-events-none whitespace-nowrap opacity-0 transition-opacity duration-75"
+        className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-[140%] whitespace-nowrap rounded-md bg-zinc-900 px-2.5 py-1 text-sm text-zinc-100 opacity-0 shadow-lg ring-1 ring-white/10 transition-opacity duration-75"
       />
 
       <div className="pointer-events-none absolute inset-0 z-10">
-        {defaultLabels.map(label => (
+        {labels.map(label => (
           <div
             key={label.id}
-            className="absolute -translate-x-1/2 -translate-y-[150%] rounded-full border border-slate-600/40 bg-slate-950/65 px-2 py-0.5 text-[11px] leading-tight text-slate-300 shadow-[0_4px_18px_rgba(0,0,0,0.35)] backdrop-blur"
+            className={`absolute -translate-x-1/2 -translate-y-[150%] rounded px-1.5 py-0.5 leading-tight ${
+              label.center
+                ? 'bg-[#f5c76b] text-sm font-semibold text-zinc-950'
+                : 'bg-zinc-950/80 text-xs text-zinc-200'
+            }`}
             style={{ left: label.x, top: label.y }}
           >
             {label.label}
@@ -416,88 +462,73 @@ export function CosmosGalaxyView({
         ))}
       </div>
 
-      <div className="absolute bottom-4 left-4 z-20 rounded border border-slate-700/60 bg-black/50 px-3 py-2 text-xs text-slate-400 backdrop-blur">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-          <span className="text-slate-300 font-medium">
-            {payload.nodeIds.length.toLocaleString()} people
-          </span>
-          <span className="text-slate-600">·</span>
-          <span>{visibleEdgeCount.toLocaleString()} / {payload.totalEdgeCount.toLocaleString()} edges</span>
-        </div>
-        {level === 'global' && (
-          <div className="mt-2 space-y-2 border-t border-slate-700/50 pt-2">
-            <label className="block">
-              <span className="flex justify-between gap-4">
-                <span>最小度数</span>
-                <span className="text-slate-300">{minDegree === 0 ? '关闭' : `≥ ${minDegree}`}</span>
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={300}
-                step={5}
-                value={minDegree}
-                onChange={event => {
-                  const value = Number(event.target.value)
-                  setMinDegree(value)
-                  minDegreeRef.current = value
-                  applyBaseHighlight()
-                }}
-                className="mt-1 w-44 accent-cyan-400"
-              />
-            </label>
-            <label className="block">
-              <span className="flex justify-between gap-4">
-                <span>边数预算</span>
-                <span className="text-slate-300">{edgeBudgetSlider === 0 ? 'auto' : edgeBudgetDisplay}</span>
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={edgeBudgetSlider}
-                onChange={event => {
-                  const slider = Number(event.target.value)
-                  setEdgeBudgetSlider(slider)
-                  if (slider === 0) {
-                    edgeBudgetOverrideRef.current = 0
-                  } else {
-                    const total = payloadRef.current?.totalEdgeCount ?? MIN_EDGE_BUDGET
-                    const t = (slider - 1) / 99
-                    edgeBudgetOverrideRef.current = Math.round(
-                      Math.exp(Math.log(MIN_EDGE_BUDGET) + t * (Math.log(total) - Math.log(MIN_EDGE_BUDGET))),
-                    )
-                  }
-                  applyEdgeDensity(true)
-                }}
-                className="mt-1 w-44 accent-cyan-400"
-              />
-            </label>
-          </div>
-        )}
-        <div className="mt-1 text-slate-500">
-          min shared works: {edgeCutoff}
-        </div>
+      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 rounded-md bg-zinc-950/80 py-1 pl-3 pr-1 text-xs text-zinc-400 ring-1 ring-white/[0.08]">
+        <span>
+          {payload.nodeIds.length.toLocaleString()} 人 · {payload.totalEdgeCount.toLocaleString()} 条骨干合作
+        </span>
+        <Popover.Root>
+          <Popover.Trigger className={iconButton} aria-label="图谱设置">
+            <Settings2 size={15} />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content side="top" align="start" sideOffset={8} className={`${panelShell} z-[60] w-72 space-y-4 p-3 text-xs text-zinc-400`}>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span>只突出合作者数 ≥</span>
+                  <span className="tabular-nums text-zinc-100">{minDegree === 0 ? '不限' : minDegree}</span>
+                </div>
+                <Slider.Root
+                  min={0}
+                  max={300}
+                  step={5}
+                  value={[minDegree]}
+                  onValueChange={([value]) => {
+                    setMinDegree(value)
+                    minDegreeRef.current = value
+                    applyBaseHighlight()
+                  }}
+                  className={sliderRoot}
+                >
+                  <Slider.Track className={sliderTrack}><Slider.Range className={sliderRange} /></Slider.Track>
+                  <Slider.Thumb className={sliderThumb} aria-label="合作者数下限" />
+                </Slider.Root>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span>同时显示的连线</span>
+                  <span className="tabular-nums text-zinc-100">
+                    {edgeBudgetSlider === 0 ? `自动（${visibleEdgeCount.toLocaleString()}）` : edgeBudgetDisplay}
+                  </span>
+                </div>
+                <Slider.Root
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={[edgeBudgetSlider]}
+                  onValueChange={([slider]) => {
+                    setEdgeBudgetSlider(slider)
+                    if (slider === 0) {
+                      edgeBudgetOverrideRef.current = 0
+                    } else {
+                      const total = payloadRef.current?.totalEdgeCount ?? MIN_EDGE_BUDGET
+                      const t = (slider - 1) / 99
+                      edgeBudgetOverrideRef.current = Math.round(
+                        Math.exp(Math.log(MIN_EDGE_BUDGET) + t * (Math.log(total) - Math.log(MIN_EDGE_BUDGET))),
+                      )
+                    }
+                    applyEdgeDensity(true)
+                  }}
+                  className={sliderRoot}
+                >
+                  <Slider.Track className={sliderTrack}><Slider.Range className={sliderRange} /></Slider.Track>
+                  <Slider.Thumb className={sliderThumb} aria-label="连线数量" />
+                </Slider.Root>
+                <div className="text-zinc-500">自动：缩放越近显示越少、越强的连线（当前最少 {edgeCutoff} 部共同作品）。</div>
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
-
-      {level === 'person' && (
-        <div className="absolute bottom-20 left-4 z-20">
-          <button
-            type="button"
-            onClick={onBackToGlobal}
-            className="flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/70 px-4 py-2 text-sm text-cyan-200 backdrop-blur hover:bg-cyan-900/70 hover:border-cyan-400/60 transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-9 9 9" />
-              <path d="M12 3v14" />
-              <path d="M5 13v7h14v-7" />
-            </svg>
-            {centerNodeName ? `${centerNodeName} · ` : ''}返回全量星系
-          </button>
-        </div>
-      )}
     </div>
   )
 }

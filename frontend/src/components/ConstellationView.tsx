@@ -3,12 +3,12 @@ import { loadCollaborationDetail, loadPersonSearchEntry, loadShortestPath } from
 import { personUrl, subjectUrl } from '../data/links'
 import { displayPersonName, displaySubjectName } from '../data/personNames'
 import type { SearchEntry, PathResult, CollaborationDetail, PersonNameMode } from '../types'
+import { ArrowLeft } from 'lucide-react'
 import { NameModeToggle } from './NameModeToggle'
 import { SearchBar } from './SearchBar'
 import {
   mutedLink,
   panelInset,
-  panelShell,
   panelSoft,
   sectionLabel,
   subtleLink,
@@ -25,13 +25,16 @@ interface ConstellationViewProps {
   onBack: () => void
 }
 
+// Paths are a categorical data series, so they keep distinct hues — muted to
+// sit with the neutral UI. Endpoints use the app accent.
 const PATH_COLORS = [
-  { stroke: '#fbbf24', glow: 'rgba(251,191,36,0.3)' },
-  { stroke: '#22d3ee', glow: 'rgba(34,211,238,0.3)' },
-  { stroke: '#c084fc', glow: 'rgba(192,132,252,0.3)' },
-  { stroke: '#fb7185', glow: 'rgba(251,113,133,0.3)' },
-  { stroke: '#34d399', glow: 'rgba(52,211,153,0.3)' },
+  { stroke: '#f5c76b' },
+  { stroke: '#8ab4c9' },
+  { stroke: '#b9a3d6' },
+  { stroke: '#d89a8e' },
+  { stroke: '#8fc1a0' },
 ]
+const ENDPOINT_COLOR = '#f5c76b'
 
 interface LayoutPoint {
   x: number
@@ -65,7 +68,7 @@ function PathStepEvidence({
 }) {
   if (loading) {
     return (
-      <div className={`${panelInset} mt-1 px-2 py-1 text-[10px] text-slate-500`}>
+      <div className={`${panelInset} mt-1 px-2 py-1 text-xs text-zinc-400`}>
         证据加载中…
       </div>
     )
@@ -73,7 +76,7 @@ function PathStepEvidence({
 
   if (error) {
     return (
-      <div className="mt-1 rounded-md border border-red-900/50 bg-red-950/20 px-2 py-1 text-[10px] text-red-300">
+      <div className="mt-1 text-xs text-red-300">
         {error}
       </div>
     )
@@ -83,15 +86,15 @@ function PathStepEvidence({
 
   return (
     <div className={`${panelInset} mt-1 p-2`}>
-      <div className="mb-1 text-[10px] text-slate-500">
-        {detail.sharedWorksCount} 部共同作品 · score {detail.collaborationScore.toFixed(1)}
+      <div className="mb-1 text-xs text-zinc-400">
+        {detail.sharedWorksCount} 部共同作品 · 合作分 {detail.collaborationScore.toFixed(1)}
       </div>
-      <div className="mb-1 text-[10px] text-slate-700 truncate">
+      <div className="mb-1 text-xs text-zinc-500 truncate">
         数据快照：{snapshotLabel(detail)}
       </div>
       <ul className="space-y-1 max-h-36 overflow-y-auto pr-1">
         {detail.sharedWorks.slice(0, 6).map(work => (
-          <li key={work.subjectId} className="text-[10px] leading-relaxed">
+          <li key={work.subjectId} className="text-xs leading-relaxed">
             <div>
               <a
                 href={subjectUrl(work.subjectId)}
@@ -102,19 +105,19 @@ function PathStepEvidence({
               >
                 {workTitle(work, personNameMode)}
               </a>
-              {work.year && <span className="ml-1 text-slate-600">{work.year}</span>}
+              {work.year && <span className="ml-1 text-zinc-500">{work.year}</span>}
             </div>
-            <div className="text-slate-600 truncate">
+            <div className="text-zinc-500 truncate">
               {displayPersonName(detail.personA, personNameMode)}: {work.personARoles || '—'}
             </div>
-            <div className="text-slate-600 truncate">
+            <div className="text-zinc-500 truncate">
               {displayPersonName(detail.personB, personNameMode)}: {work.personBRoles || '—'}
             </div>
           </li>
         ))}
       </ul>
       {detail.sharedWorks.length > 6 && (
-        <div className="mt-1 text-[10px] text-slate-600">
+        <div className="mt-1 text-xs text-zinc-500">
           仅显示前 6 部；完整证据仍由合作详情接口返回。
         </div>
       )}
@@ -335,14 +338,14 @@ export function ConstellationView({
   }, [expandedStepKey])
 
   return (
-    <div className="w-full h-full bg-[#080810] flex overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden bg-[#0b0c10]">
       {/* Left: search sidebar */}
-      <div className="z-20 flex w-[19rem] shrink-0 flex-col gap-3 border-r border-slate-800/50 bg-black/30 p-4">
+      <div className="z-20 flex w-[20rem] shrink-0 flex-col gap-3 overflow-y-auto border-r border-white/[0.08] bg-[#16171b] p-4">
         <button
           onClick={onBack}
-          className={`${panelShell} w-fit px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-slate-200`}
+          className={`${mutedLink} inline-flex w-fit items-center gap-1 text-sm`}
         >
-          ← 返回星系
+          <ArrowLeft size={15} /> 返回星系
         </button>
 
         <div className={sectionLabel}>
@@ -359,7 +362,7 @@ export function ConstellationView({
               className="w-full"
             />
           </div>
-          <div className="text-center text-xs text-slate-600">
+          <div className="text-center text-xs text-zinc-500">
             {isCompareMode ? '↓ 比较 ↓' : '↓ 连接到 ↓'}
           </div>
           <div>
@@ -378,13 +381,13 @@ export function ConstellationView({
           type="button"
           disabled={!personA || !personB || loading}
           onClick={() => void handleFind()}
-          className="w-full rounded-lg border border-cyan-600/30 bg-cyan-950/45 py-2 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-900/55 disabled:cursor-not-allowed disabled:border-slate-800 disabled:bg-slate-900/50 disabled:text-slate-600"
+          className="w-full rounded-md bg-[#f5c76b] py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-[#f8d68b] disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-500"
         >
           {loading ? '探寻中…' : isCompareMode ? '比较合作与路径' : '探寻路径'}
         </button>
 
         {error && (
-          <div className="text-xs text-red-400 bg-red-950/30 border border-red-800/40 rounded px-2 py-1.5">
+          <div className="text-sm text-red-300">
             {error}
           </div>
         )}
@@ -396,7 +399,7 @@ export function ConstellationView({
                 {isCompareMode ? '直接合作比较' : '直接合作'}
               </div>
               {directDetail && (
-                <div className="text-[10px] text-cyan-300 tabular-nums">
+                <div className="text-xs tabular-nums text-zinc-300">
                   {directDetail.sharedWorksCount} 部 · {directDetail.firstYear}
                   {directDetail.lastYear && directDetail.lastYear !== directDetail.firstYear
                     ? `–${directDetail.lastYear}`
@@ -407,15 +410,15 @@ export function ConstellationView({
 
             {directDetail ? (
               <div className="space-y-2">
-                <div className="text-[11px] text-slate-400">
-                  score {directDetail.collaborationScore.toFixed(1)} · 来自完整合作查询
+                <div className="text-xs text-zinc-300">
+                  合作分 {directDetail.collaborationScore.toFixed(1)} · 来自完整合作查询
                 </div>
-                <div className="text-[10px] text-slate-700 truncate">
+                <div className="text-xs text-zinc-500 truncate">
                   数据快照：{snapshotLabel(directDetail)}
                 </div>
                 <ul className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                   {directDetail.sharedWorks.slice(0, 8).map(work => (
-                    <li key={work.subjectId} className="text-[11px] leading-relaxed">
+                    <li key={work.subjectId} className="text-xs leading-relaxed">
                       <div>
                         <a
                           href={subjectUrl(work.subjectId)}
@@ -427,26 +430,26 @@ export function ConstellationView({
                           {workTitle(work, personNameMode)}
                         </a>
                         {work.year && (
-                          <span className="ml-1 text-slate-600">{work.year}</span>
+                          <span className="ml-1 text-zinc-500">{work.year}</span>
                         )}
                       </div>
-                      <div className="text-slate-600 truncate">
+                      <div className="text-zinc-500 truncate">
                         {displayPersonName(personA, personNameMode)}: {work.personARoles || '—'}
                       </div>
-                      <div className="text-slate-600 truncate">
+                      <div className="text-zinc-500 truncate">
                         {displayPersonName(personB, personNameMode)}: {work.personBRoles || '—'}
                       </div>
                     </li>
                   ))}
                 </ul>
                 {directDetail.sharedWorks.length > 8 && (
-                  <div className="text-[10px] text-slate-600">
+                  <div className="text-xs text-zinc-500">
                     仅显示前 8 部，完整列表可在人物详情中展开。
                   </div>
                 )}
               </div>
             ) : (
-              <div className="text-xs text-slate-500 leading-relaxed">
+              <div className="text-xs text-zinc-400 leading-relaxed">
                 未找到直接合作证据；{isCompareMode ? '已继续查询两人的最短连接路径。' : '下方展示基于完整合作图的最短连接路径。'}
               </div>
             )}
@@ -470,12 +473,12 @@ export function ConstellationView({
                   onMouseEnter={() => setHighlightPath(i)}
                   onMouseLeave={() => setHighlightPath(null)}
                 >
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors.stroke }} />
-                    <span className="text-slate-500 leading-tight">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="h-0.5 w-3 shrink-0" style={{ backgroundColor: colors.stroke }} />
+                    <span className="text-zinc-400 leading-tight">
                       {path.nodes.map((id, index) => (
                         <span key={id}>
-                          {index > 0 && <span className="mx-1 text-slate-700">→</span>}
+                          {index > 0 && <span className="mx-1 text-zinc-500">→</span>}
                           <a
                             href={personUrl(id)}
                             target="_blank"
@@ -499,16 +502,16 @@ export function ConstellationView({
                           <button
                             type="button"
                             onClick={() => void handleToggleStep(key, step.source, step.target)}
-                            className={`w-full rounded-md px-1.5 py-1 text-left text-[10px] transition-colors ${
+                            className={`w-full rounded-md px-1.5 py-1 text-left text-xs transition-colors ${
                               expanded
-                                ? 'bg-cyan-950/30 text-cyan-200'
-                                : 'text-slate-500 hover:bg-slate-900/70 hover:text-slate-300'
+                                ? 'bg-white/[0.06] text-zinc-100'
+                                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
                             }`}
                           >
                             {expanded ? '收起证据' : '展开证据'} · {peopleById.get(step.source) ?? step.source}
-                            <span className="mx-1 text-slate-700">→</span>
+                            <span className="mx-1 text-zinc-500">→</span>
                             {peopleById.get(step.target) ?? step.target}
-                            <span className="ml-1 text-slate-600">
+                            <span className="ml-1 text-zinc-500">
                               {step.sharedWorksCount} 部 · {step.collaborationScore.toFixed(1)}
                             </span>
                           </button>
@@ -560,14 +563,6 @@ export function ConstellationView({
 
                   return (
                     <g key={`${nodeId}-${nodeIds[i + 1]}`}>
-                      {/* Glow */}
-                      <path
-                        d={`M${from.x},${from.y} Q${from.x + (to.x - from.x) * curvature},${from.y + (to.y - from.y) * 0.15} ${midX},${midY} T${to.x},${to.y}`}
-                        fill="none"
-                        stroke={colors.glow}
-                        strokeWidth={1.8}
-                        strokeLinecap="round"
-                      />
                       {/* Line */}
                       <path
                         d={`M${from.x},${from.y} Q${from.x + (to.x - from.x) * curvature},${from.y + (to.y - from.y) * 0.15} ${midX},${midY} T${to.x},${to.y}`}
@@ -607,18 +602,9 @@ export function ConstellationView({
                 className="cursor-pointer"
                 onClick={() => onNodeClick(point.id)}
               >
-                {/* Glow ring */}
-                <circle cx={point.x} cy={point.y} r={r * 2.2}
-                  fill={isEndpoint ? '#fbbf24' : '#e2e8f0'}
-                  opacity={0.06}
-                />
-                <circle cx={point.x} cy={point.y} r={r * 1.4}
-                  fill={isEndpoint ? '#fbbf24' : '#e2e8f0'}
-                  opacity={0.12}
-                />
                 {/* Core */}
                 <circle cx={point.x} cy={point.y} r={r}
-                  fill={isEndpoint ? '#fbbf24' : '#cbd5e1'}
+                  fill={isEndpoint ? ENDPOINT_COLOR : '#d4d4d8'}
                 />
                 {/* Invisible larger hit area */}
                 <circle cx={point.x} cy={point.y} r={r * 3}
@@ -628,7 +614,7 @@ export function ConstellationView({
                 <text
                   x={point.x}
                   y={point.y + r * 2.5 + 2}
-                  fill={isEndpoint ? '#fbbf24' : '#94a3b8'}
+                  fill={isEndpoint ? ENDPOINT_COLOR : '#a1a1aa'}
                   fontSize={isEndpoint ? 2.8 : 2.4}
                   textAnchor="middle"
                   fontWeight={isEndpoint ? 600 : 400}

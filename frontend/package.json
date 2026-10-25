@@ -12,10 +12,11 @@
   "dependencies": {
     "@cosmos.gl/graph": "^3.1.0",
     "@tailwindcss/vite": "4.3.0",
-    "graphology": "0.26.0",
-    "graphology-types": "0.24.7",
+    "lucide-react": "1.55.0",
+    "radix-ui": "1.7.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-force-graph-2d": "^1.29.2",
     "tailwindcss": "4.3.0"
   },
   "devDependencies": {

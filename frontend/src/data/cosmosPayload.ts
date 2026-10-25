@@ -1,12 +1,9 @@
-import type Graph from 'graphology'
 import { NO_COMMUNITY, type GlobalGraphData } from './graphBuffers'
 import { displayPersonName } from './personNames'
 import type { PersonNameMode } from '../types'
 
 export const COSMOS_SPACE_SIZE = 8192
 export const COSMOS_LAYOUT_SIZE = 4300
-
-const PERSON_ALL_LABEL_EDGE_LIMIT = 36
 
 export interface CosmosPayload {
   nodeIds: string[]
@@ -30,16 +27,6 @@ export interface CosmosPayload {
   // useful for a single hovered point — this is our own incident-edge index.
   pointToLinkIndices: number[][]
   nodeLabels: Map<string, string>
-  defaultLabelIndices: number[]
-}
-
-// cosmos.gl v3 expects RGBA channels normalized to [0, 1] for setPointColors/
-// setLinkColors (was RGB 0-255 / alpha 0-1 in v2). See migration-notes.md.
-function readRgbNormalized(value: unknown): [number, number, number] {
-  if (typeof value !== 'string') return [212 / 255, 215 / 255, 223 / 255]
-  const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-  if (!match) return [212 / 255, 215 / 255, 223 / 255]
-  return [Number(match[1]) / 255, Number(match[2]) / 255, Number(match[3]) / 255]
 }
 
 function hslToRgbNormalized(h: number, s: number, l: number): [number, number, number] {
@@ -59,6 +46,7 @@ function hslToRgbNormalized(h: number, s: number, l: number): [number, number, n
 
 // Community hue shift (plan Phase 3.3): low-saturation golden-angle hue per
 // Leiden community over the server's neutral gray base — Obsidian group colors.
+// cosmos.gl v3 color buffers are RGBA normalized to [0, 1] (v2 used RGB 0-255).
 function communityColor(baseValue: number, communityId: number): [number, number, number, number] {
   if (communityId === NO_COMMUNITY) {
     const v = baseValue / 255
@@ -73,7 +61,6 @@ function communityColor(baseValue: number, communityId: number): [number, number
 function buildEdgeStyleArrays(
   totalEdgeCount: number,
   scoreAt: (index: number) => number,
-  level: 'global' | 'person',
 ): { colors: Float32Array; widths: Float32Array } {
   const colors = new Float32Array(totalEdgeCount * 4)
   const widths = new Float32Array(totalEdgeCount)
@@ -84,14 +71,14 @@ function buildEdgeStyleArrays(
     const r = 130 + t * 80
     const g = 148 + t * 65
     const b = 175 + t * 55
-    const alpha = level === 'person' ? 28 + t * 52 : 10 + t * 22
+    const alpha = 10 + t * 22
 
     colors[index * 4] = r / 255
     colors[index * 4 + 1] = g / 255
     colors[index * 4 + 2] = b / 255
     colors[index * 4 + 3] = alpha / 255
 
-    widths[index] = level === 'person' ? 0.2 + t * 0.55 : 0.14 + t * 0.44
+    widths[index] = 0.14 + t * 0.44
   }
   return { colors, widths }
 }
@@ -131,7 +118,6 @@ export function buildGlobalPayload(data: GlobalGraphData, personNameMode: Person
   const { colors: sortedLinkColors, widths: sortedLinkWidths } = buildEdgeStyleArrays(
     edgeCount,
     index => data.edgeWeights[index] > 0 ? data.edgeWeights[index] : data.edgeShared[index],
-    'global',
   )
 
   return {
@@ -148,120 +134,5 @@ export function buildGlobalPayload(data: GlobalGraphData, personNameMode: Person
     totalEdgeCount: edgeCount,
     pointToLinkIndices: buildIncidence(nodeCount, data.edgePairs, edgeCount),
     nodeLabels,
-    defaultLabelIndices: [],
-  }
-}
-
-// Person galaxy: small (≤ few hundred nodes), built from graphology as before.
-export function buildPersonPayload(graph: Graph, personNameMode: PersonNameMode): CosmosPayload {
-  const nodeIds = graph.nodes()
-  const indexById = new Map(nodeIds.map((id, index) => [id, index]))
-  const positions = new Float32Array(nodeIds.length * 2)
-  const rawPositions = new Float32Array(nodeIds.length * 2)
-  const pointColors = new Float32Array(nodeIds.length * 4)
-  const pointSizes = new Float32Array(nodeIds.length)
-  const degrees = new Uint32Array(nodeIds.length)
-  const nodeLabels = new Map<string, string>()
-
-  let minX = Infinity
-  let maxX = -Infinity
-  let minY = Infinity
-  let maxY = -Infinity
-
-  nodeIds.forEach((nodeId, index) => {
-    const attrs = graph.getNodeAttributes(nodeId)
-    const x = Number(attrs.x ?? 0)
-    const y = Number(attrs.y ?? 0)
-    rawPositions[index * 2] = x
-    rawPositions[index * 2 + 1] = y
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-
-    const [r, g, b] = readRgbNormalized(attrs.color)
-    pointColors[index * 4] = r
-    pointColors[index * 4 + 1] = g
-    pointColors[index * 4 + 2] = b
-    pointColors[index * 4 + 3] = 1
-    pointSizes[index] = attrs.isCenter
-      ? 10
-      : Math.max(2.0, Number(attrs.size ?? 2.5) * (graph.order <= 700 ? 1.2 : 1.0))
-    degrees[index] = Number(attrs.degree ?? 0)
-
-    const name = (attrs.name as string) ?? (attrs.label as string) ?? nodeId
-    const nameCn = attrs.nameCn as string | undefined
-    const nameTw = attrs.nameTw as string | undefined
-    nodeLabels.set(nodeId, displayPersonName({ name, nameCn, nameTw }, personNameMode))
-  })
-
-  const span = Math.max(maxX - minX, maxY - minY, 1)
-  const centerX = (minX + maxX) / 2
-  const centerY = (minY + maxY) / 2
-
-  nodeIds.forEach((_nodeId, index) => {
-    positions[index * 2] = COSMOS_SPACE_SIZE / 2 + ((rawPositions[index * 2] - centerX) / span) * COSMOS_LAYOUT_SIZE
-    positions[index * 2 + 1] = COSMOS_SPACE_SIZE / 2 + ((rawPositions[index * 2 + 1] - centerY) / span) * COSMOS_LAYOUT_SIZE
-  })
-
-  const edgeRecords = graph.edges().map(edge => {
-    const [source, target] = graph.extremities(edge)
-    return {
-      sourceIndex: indexById.get(source) ?? 0,
-      targetIndex: indexById.get(target) ?? 0,
-      sharedWorksCount: Number(graph.getEdgeAttribute(edge, 'sharedWorksCount') ?? 0),
-      collaborationScore: Number(graph.getEdgeAttribute(edge, 'collaborationScore') ?? 0),
-    }
-  })
-  // Sort descending by strength so any zoom-dependent edge budget is a prefix slice.
-  edgeRecords.sort((a, b) => (
-    b.sharedWorksCount - a.sharedWorksCount || b.collaborationScore - a.collaborationScore
-  ))
-
-  const totalEdgeCount = edgeRecords.length
-  const sortedLinks = new Float32Array(totalEdgeCount * 2)
-  const sortedSharedCounts = new Int32Array(totalEdgeCount)
-  edgeRecords.forEach((edge, index) => {
-    sortedLinks[index * 2] = edge.sourceIndex
-    sortedLinks[index * 2 + 1] = edge.targetIndex
-    sortedSharedCounts[index] = edge.sharedWorksCount
-  })
-  const { colors: sortedLinkColors, widths: sortedLinkWidths } = buildEdgeStyleArrays(
-    totalEdgeCount,
-    index => {
-      const edge = edgeRecords[index]
-      return edge.collaborationScore > 0 ? edge.collaborationScore : edge.sharedWorksCount
-    },
-    'person',
-  )
-
-  const pointToLinkIndices: number[][] = nodeIds.map(() => [])
-  edgeRecords.forEach((edge, index) => {
-    pointToLinkIndices[edge.sourceIndex].push(index)
-    pointToLinkIndices[edge.targetIndex].push(index)
-  })
-
-  const centerIndex = nodeIds.findIndex(nodeId => Boolean(graph.getNodeAttribute(nodeId, 'isCenter')))
-  const defaultLabelIndices = totalEdgeCount <= PERSON_ALL_LABEL_EDGE_LIMIT
-    ? nodeIds.map((_nodeId, index) => index)
-    : centerIndex >= 0
-      ? [centerIndex]
-      : []
-
-  return {
-    nodeIds,
-    nodeIndexById: indexById,
-    positions,
-    pointColors,
-    pointSizes,
-    degrees,
-    sortedLinks,
-    sortedLinkColors,
-    sortedLinkWidths,
-    sortedSharedCounts,
-    totalEdgeCount,
-    pointToLinkIndices,
-    nodeLabels,
-    defaultLabelIndices,
   }
 }
