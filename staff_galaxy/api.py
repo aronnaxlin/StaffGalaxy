@@ -508,6 +508,120 @@ def person_credits(
     }
 
 
+@app.get("/api/person/{person_id}/knowledge-graph")
+def person_knowledge_graph(
+    person_id: int,
+    people: Annotated[int, Query(ge=1, le=40)] = 10,
+    works: Annotated[int, Query(ge=1, le=60)] = 14,
+) -> dict[str, Any]:
+    """Local Person-[:CREDITED]->Anime subgraph around one person, for the KG panel.
+
+    Keeps the `people` strongest collaborators (by collaboration score over the
+    complete graph) and the `works` anime that connect the center to the most of
+    them. Every link is a real CREDITED relationship, labelled with its roles.
+    """
+    driver = graph()
+    center = read_one(
+        driver,
+        "MATCH (p:Person {id: $person_id}) RETURN p.name AS name, p.infobox AS infobox",
+        person_id=person_id,
+    )
+    if center is None:
+        raise HTTPException(status_code=404, detail=f"Unknown person id: {person_id}")
+
+    collaborators = read(
+        driver,
+        """
+        MATCH (:Person {id: $person_id})-[rc:CREDITED]->(a:Anime)<-[ro:CREDITED]-(o:Person)
+        WHERE o.id <> $person_id
+        WITH o, a, max(rc.role_weight) AS center_weight, max(ro.role_weight) AS other_weight
+        WITH o, count(a) AS shared, sum(sqrt(center_weight * other_weight)) AS score
+        ORDER BY score DESC, shared DESC, o.id
+        LIMIT $people
+        RETURN o.id AS id, o.name AS name, o.infobox AS infobox, shared, score
+        """,
+        person_id=person_id,
+        people=people,
+    )
+    collaborator_ids = [row["id"] for row in collaborators]
+    anime_rows = read(
+        driver,
+        """
+        MATCH (c:Person {id: $person_id})-[rc:CREDITED]->(a:Anime)
+        OPTIONAL MATCH (a)<-[:CREDITED]-(o:Person) WHERE o.id IN $collaborator_ids
+        WITH a, max(rc.role_weight) AS center_weight, count(DISTINCT o) AS linked
+        ORDER BY linked DESC, center_weight DESC, coalesce(a.year, 0) DESC, a.id
+        LIMIT $works
+        RETURN a.id AS id, a.name AS name, a.name_cn AS name_cn, a.year AS year, linked
+        """,
+        person_id=person_id,
+        collaborator_ids=collaborator_ids,
+        works=works,
+    )
+    link_rows = read(
+        driver,
+        """
+        MATCH (p:Person) WHERE p.id IN $person_ids
+        MATCH (p)-[r:CREDITED]->(a:Anime) WHERE a.id IN $anime_ids
+        WITH p, a, r ORDER BY r.role_weight DESC, r.position_cn
+        RETURN p.id AS person_id, a.id AS anime_id,
+               collect(DISTINCT r.position_cn) AS roles,
+               max(r.role_weight) AS role_weight,
+               head(collect(r.role_tier)) AS role_tier
+        """,
+        person_ids=[person_id, *collaborator_ids],
+        anime_ids=[row["id"] for row in anime_rows],
+    )
+
+    # Drop collaborators whose shared works all fell outside the kept anime.
+    linked_people = {row["person_id"] for row in link_rows}
+    nodes: list[dict[str, Any]] = [
+        {
+            **_person_payload(person_id, center["name"], center["infobox"] or ""),
+            "key": f"p:{person_id}",
+            "kind": "person",
+            "isCenter": True,
+        }
+    ]
+    nodes.extend(
+        {
+            **_person_payload(row["id"], row["name"], row["infobox"] or ""),
+            "key": f"p:{row['id']}",
+            "kind": "person",
+            "isCenter": False,
+            "sharedWorksCount": int(row["shared"]),
+            "collaborationScore": round(float(row["score"]), 2),
+        }
+        for row in collaborators
+        if row["id"] in linked_people
+    )
+    nodes.extend(
+        {
+            "key": f"a:{row['id']}",
+            "kind": "anime",
+            "id": str(row["id"]),
+            "name": row["name"],
+            "nameCn": row["name_cn"] or "",
+            "year": row["year"],
+        }
+        for row in anime_rows
+    )
+    return {
+        "centerId": str(person_id),
+        "nodes": nodes,
+        "links": [
+            {
+                "source": f"p:{row['person_id']}",
+                "target": f"a:{row['anime_id']}",
+                "roles": [role for role in row["roles"] if role],
+                "roleTier": row["role_tier"],
+                "roleWeight": float(row["role_weight"]),
+            }
+            for row in link_rows
+        ],
+    }
+
+
 # Per-pair evidence derived from the knowledge graph: each shared work counts
 # once, weighted by both people's highest-weight role on it.
 _PAIR_SHARED_WORKS = """

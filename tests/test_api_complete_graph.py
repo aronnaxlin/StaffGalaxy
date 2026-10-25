@@ -271,6 +271,21 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(detail["recentWorks"][0]["roles"], "脚本")
         self.assertEqual(detail["source"]["snapshot"]["archiveName"], "dump-test.zip")
 
+    def test_knowledge_graph_links_people_through_anime(self) -> None:
+        kg = api.person_knowledge_graph(1, people=5, works=5)
+
+        keys = [node["key"] for node in kg["nodes"]]
+        self.assertEqual(keys[0], "p:1")
+        self.assertTrue(kg["nodes"][0]["isCenter"])
+        # Collaborators ranked by score: 3 (script x script = 12) before 2 (key animation = 3).
+        self.assertEqual([k for k in keys if k.startswith("p:")], ["p:1", "p:3", "p:2"])
+        self.assertEqual(sorted(k for k in keys if k.startswith("a:")), ["a:10", "a:11"])
+        links = {(link["source"], link["target"]): link for link in kg["links"]}
+        self.assertEqual(set(links), {("p:1", "a:10"), ("p:1", "a:11"), ("p:2", "a:10"), ("p:3", "a:11")})
+        self.assertEqual(links[("p:1", "a:11")]["roles"], ["脚本"])
+        self.assertEqual(links[("p:1", "a:11")]["roleTier"], "B")
+        self.assertEqual(kg["nodes"][0]["nameCn"], "宫崎骏")
+
     def test_person_credits_returns_complete_raw_role_rows(self) -> None:
         credits = api.person_credits(1)
 
