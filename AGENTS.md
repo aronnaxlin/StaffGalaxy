@@ -167,10 +167,28 @@ Cypher `ALL SHORTEST` over `(:Person)-[:CREDITED]-(:Anime)` (one collaboration h
   (`communityColor` in `cosmosPayload.ts`).
 - Hover labels use DOM direct manipulation (not React state) for smooth performance at 21K+ nodes.
 - Cosmos config is a module-level constant, avoiding re-creation on every render.
-- Edge LOD: every edge is uploaded once (`setLinks`); a zoom-dependent edge
-  *budget* zeroes the widths past the strength-sorted prefix
-  (`edgeBudgetForZoom`). Re-uploading links per budget change cost a ~0.5 s
-  hitch on M1. The selected person's edges are always drawn.
+- Edge LOD: only a strength-sorted *prefix* of the edges is uploaded
+  (`setLinks`), sized by zoom (`edgeBudgetForZoom`: 80K / 50K / 30K) times the
+  quality level; the selected person's edges beyond the prefix are appended.
+  Do NOT go back to uploading every edge and zeroing widths: cosmos.gl pads each
+  link with a 0.5 px smoothing band, so zero-width links are still rasterized
+  end to end — measured under software rendering, 20K "visible" of 107K
+  uploaded cost exactly as much as all 107K (0.7 fps). A prefix re-upload takes
+  5–17 ms; an earlier ~0.5 s pan hitch was misattributed to it.
+- Adaptive render quality (`QUALITY_LEVELS`): frame times are sampled only while
+  cosmos.gl renders; a median above 26 ms steps down (pixel ratio 2 → 1.5 → 1,
+  then edge scale 1 → 0.6 → 0.3 → 0.12 → 0.05), sustained headroom steps back up
+  but never into a level that proved slow this session. The level persists in
+  localStorage; software rasterizers (SwiftShader / llvmpipe) start at the floor.
+  Under SwiftShader this takes the zoomed-out galaxy from 0.8 to ~49 fps.
+- GPU benchmark: `frontend/scripts/gpu-bench.mjs` (CDP, no deps) measures render
+  cost per variant; `?debug` exposes `window.__galaxyDebug` for it. Run
+  `node scripts/gpu-bench.mjs --url http://127.0.0.1:4173/ --launch /usr/bin/chromium --swiftshader`
+  for the software floor, or `--port` against a visible Chrome on a real device.
+  Headless Chromium on Linux falls back to SwiftShader even with a GPU present.
+- Never call a function that creates a WebGL context during render (e.g. as a
+  `useRef(...)` argument): browsers cap live contexts and evict the oldest —
+  the galaxy's own — which renders the canvas black.
 - Idle render pause: cosmos.gl redraws every frame forever; `wake()` in
   `CosmosGalaxyView` pauses its loop after 1.5 s without input via the
   TS-private `startFrames`/`stopFrames` (feature-detected). Only restart when

@@ -23,12 +23,48 @@ interface GraphLabel {
 }
 
 // Edge count to keep on screen at the current zoom level, taken as a prefix of the
-// strength-sorted edge arrays. All edges stay uploaded; budgets only zero the
-// widths past the prefix, so a budget change never rebuilds link buffers.
+// strength-sorted edge arrays and scaled by the render-quality level. Only the
+// prefix is uploaded: cosmos.gl pads every link by a 0.5 px smoothing band, so a
+// zero-width link is still rasterized along its whole length (measured: 20K
+// visible of 107K uploaded cost the same as all 107K). Re-uploading a prefix
+// takes ~10-20 ms even under software rendering.
 function edgeBudgetForZoom(zoom: number): number {
   if (zoom > 1.1) return 30_000
-  if (zoom > 0.75) return 80_000
-  return 160_000
+  if (zoom > 0.75) return 50_000
+  return 80_000
+}
+
+// Adaptive render quality (dynamic resolution): step down when frames are slow,
+// back up only after sustained headroom. Pixel ratio goes first, edges after.
+const QUALITY_LEVELS = [
+  { pixelRatio: 2, edgeScale: 1 },
+  { pixelRatio: 1.5, edgeScale: 1 },
+  { pixelRatio: 1, edgeScale: 0.6 },
+  { pixelRatio: 1, edgeScale: 0.3 },
+  { pixelRatio: 1, edgeScale: 0.12 },
+  { pixelRatio: 1, edgeScale: 0.05 },
+] as const
+const QUALITY_STORAGE_KEY = 'staffGalaxy.renderQuality'
+const SLOW_FRAME_MS = 26 // median frame time above this (~38 fps) steps quality down
+const FAST_FRAME_MS = 17.5 // ...below this for UPGRADE_WINDOWS windows steps it up
+const UPGRADE_WINDOWS = 6
+
+function initialQualityLevel(): number {
+  try {
+    const raw = window.localStorage.getItem(QUALITY_STORAGE_KEY)
+    const stored = raw === null ? NaN : Number(raw) // Number(null) would read as level 0
+    if (Number.isInteger(stored) && stored >= 0 && stored < QUALITY_LEVELS.length) return stored
+  } catch {
+    // Storage unavailable (private mode): fall through to detection.
+  }
+  // Software rasterizers start at the floor instead of crawling down to it.
+  const gl = document.createElement('canvas').getContext('webgl2')
+  const info = gl?.getExtension('WEBGL_debug_renderer_info')
+  const renderer = info ? String(gl!.getParameter(info.UNMASKED_RENDERER_WEBGL)) : ''
+  // Release the probe context now: browsers cap live WebGL contexts and evict
+  // the oldest one, which would be the galaxy's own.
+  gl?.getExtension('WEBGL_lose_context')?.loseContext()
+  return /swiftshader|llvmpipe|software/i.test(renderer) ? QUALITY_LEVELS.length - 1 : 0
 }
 
 const FOCUS_LABEL_LIMIT = 14
@@ -66,7 +102,6 @@ const COSMOS_CONFIG = {
   linkVisibilityMinTransparency: 0.02,
   scalePointsOnZoom: true,
   scaleLinksOnZoom: false,
-  pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
   attribution: '',
 }
 
@@ -95,7 +130,17 @@ export function CosmosGalaxyView({
   const payloadRef = useRef<CosmosPayload | null>(null)
   const selectedNodeRef = useRef<string | null>(selectedNode)
   const edgeCountRef = useRef(0)
-  const widthsRef = useRef<Float32Array | null>(null)
+  // What is uploaded: the first `prefix` sorted links, then `extras` (the selected
+  // person's links beyond the prefix). Highlight indices refer to this order.
+  const uploadedRef = useRef<{ prefix: number; extras: Map<number, number>; key: string }>({
+    prefix: 0, extras: new Map(), key: '',
+  })
+  // Lazy initializer: runs once. (useRef(initialQualityLevel()) would re-run the
+  // WebGL probe on every render.)
+  const [initialQuality] = useState(initialQualityLevel)
+  const qualityRef = useRef(initialQuality)
+  // Lowest level index that proved too slow this session; never upgrade back into it.
+  const qualityFloorRef = useRef(0)
   const labelIndicesRef = useRef<number[]>([])
   const idleTimerRef = useRef(0)
   const applyEdgeDensityRef = useRef<(() => void) | null>(null)
@@ -113,6 +158,7 @@ export function CosmosGalaxyView({
   const [labels, setLabels] = useState<GraphLabel[]>([])
   const [minDegree, setMinDegree] = useState(0)
   const [edgeBudgetSlider, setEdgeBudgetSlider] = useState(0)
+  const [qualityLevel, setQualityLevel] = useState(initialQuality)
 
   // Resume rendering and re-arm the idle pause. Call after anything that changes
   // what is on screen (config, data, camera) and on every pointer/wheel input.
@@ -133,6 +179,11 @@ export function CosmosGalaxyView({
     return source === index ? links[linkIndex * 2 + 1] : source
   }, [])
 
+  const uploadedIndex = useCallback((linkIndex: number) => {
+    const { prefix, extras } = uploadedRef.current
+    return linkIndex < prefix ? linkIndex : extras.get(linkIndex) ?? -1
+  }, [])
+
   const applyEdgeDensity = useCallback((force = false) => {
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
@@ -140,19 +191,37 @@ export function CosmosGalaxyView({
 
     const budget = edgeBudgetOverrideRef.current > 0
       ? edgeBudgetOverrideRef.current
-      : edgeBudgetForZoom(cosmos.getZoomLevel())
+      : Math.round(edgeBudgetForZoom(cosmos.getZoomLevel()) * QUALITY_LEVELS[qualityRef.current].edgeScale)
     const n = Math.min(budget, payload.totalEdgeCount)
-    if (!force && n === edgeCountRef.current) return
-
-    // Edges past the budget get width 0 (no fragments drawn). The selected
-    // person's own edges are always drawn, whatever the budget.
-    const widths = new Float32Array(payload.totalEdgeCount)
-    widths.set(payload.sortedLinkWidths.subarray(0, n))
     const selectedIndex = selectedNodeRef.current ? payload.nodeIndexById.get(selectedNodeRef.current) : undefined
-    if (selectedIndex !== undefined) {
-      for (const li of payload.pointToLinkIndices[selectedIndex]) widths[li] = payload.sortedLinkWidths[li] * 2.2
+    const key = `${n}|${selectedIndex ?? ''}`
+    if (!force && key === uploadedRef.current.key) return
+
+    // The selected person's edges are always drawn, whatever the budget.
+    const ego = selectedIndex !== undefined ? payload.pointToLinkIndices[selectedIndex] : []
+    const extraLinks = ego.filter(li => li >= n)
+    const total = n + extraLinks.length
+    const links = new Float32Array(total * 2)
+    const colors = new Float32Array(total * 4)
+    const widths = new Float32Array(total)
+    links.set(payload.sortedLinks.subarray(0, n * 2))
+    colors.set(payload.sortedLinkColors.subarray(0, n * 4))
+    widths.set(payload.sortedLinkWidths.subarray(0, n))
+    const extras = new Map<number, number>()
+    extraLinks.forEach((li, k) => {
+      const at = n + k
+      extras.set(li, at)
+      links.set(payload.sortedLinks.subarray(li * 2, li * 2 + 2), at * 2)
+      widths[at] = payload.sortedLinkWidths[li]
+    })
+    uploadedRef.current = { prefix: n, extras, key }
+    for (const li of ego) {
+      const at = uploadedIndex(li)
+      colors.set(FOCUS_EDGE_RGBA, at * 4)
+      widths[at] = payload.sortedLinkWidths[li] * 2.2
     }
-    widthsRef.current = widths
+    cosmos.setLinks(links)
+    cosmos.setLinkColors(colors)
     cosmos.setLinkWidths(widths)
     cosmos.render()
     wake()
@@ -160,7 +229,7 @@ export function CosmosGalaxyView({
     edgeCountRef.current = n
     setVisibleEdgeCount(n)
     setEdgeCutoff(n > 0 ? payload.sortedSharedCounts[n - 1] : 0)
-  }, [wake])
+  }, [uploadedIndex, wake])
 
   // Resting highlight: the selected person's collaboration circle if any,
   // otherwise the min-degree filter. Hover temporarily replaces it.
@@ -174,7 +243,7 @@ export function CosmosGalaxyView({
       const links = egoLinks(selectedIndex)
       cosmos.setConfigPartial({
         highlightedPointIndices: [selectedIndex, ...links.map(li => otherEnd(li, selectedIndex))],
-        highlightedLinkIndices: links,
+        highlightedLinkIndices: links.map(uploadedIndex),
       })
     } else if (minDegreeRef.current > 0) {
       const threshold = minDegreeRef.current
@@ -187,7 +256,7 @@ export function CosmosGalaxyView({
       cosmos.setConfigPartial({ highlightedPointIndices: undefined, highlightedLinkIndices: undefined })
     }
     wake()
-  }, [egoLinks, otherEnd, wake])
+  }, [egoLinks, otherEnd, uploadedIndex, wake])
 
   // Hover highlight is pure GPU-side config driven by the precomputed incidence
   // map — O(degree), not O(edges).
@@ -199,14 +268,13 @@ export function CosmosGalaxyView({
       applyBaseHighlight()
       return
     }
-    const widths = widthsRef.current
-    const links = egoLinks(index).filter(li => !widths || widths[li] > 0)
+    const links = egoLinks(index).filter(li => uploadedIndex(li) >= 0)
     cosmos.setConfigPartial({
       highlightedPointIndices: [index, ...links.map(li => otherEnd(li, index))],
-      highlightedLinkIndices: links,
+      highlightedLinkIndices: links.map(uploadedIndex),
     })
     wake()
-  }, [applyBaseHighlight, egoLinks, otherEnd, wake])
+  }, [applyBaseHighlight, egoLinks, otherEnd, uploadedIndex, wake])
 
   const updateLabels = useCallback(() => {
     const cosmos = cosmosRef.current
@@ -274,13 +342,6 @@ export function CosmosGalaxyView({
     const payload = payloadRef.current
     if (!cosmos || !payload) return
     const index = selectedNodeRef.current ? payload.nodeIndexById.get(selectedNodeRef.current) : undefined
-    if (index === undefined) {
-      cosmos.setLinkColors(payload.sortedLinkColors)
-    } else {
-      const colors = payload.sortedLinkColors.slice()
-      for (const li of payload.pointToLinkIndices[index]) colors.set(FOCUS_EDGE_RGBA, li * 4)
-      cosmos.setLinkColors(colors)
-    }
     applyEdgeDensity(true)
     applyBaseHighlight()
     if (index === undefined) {
@@ -315,6 +376,83 @@ export function CosmosGalaxyView({
     applyEdgeDensityRef.current = () => applyEdgeDensity()
   }, [applyEdgeDensity])
 
+  const applyQuality = useCallback((level: number) => {
+    qualityRef.current = level
+    setQualityLevel(level)
+    try {
+      window.localStorage.setItem(QUALITY_STORAGE_KEY, String(level))
+    } catch {
+      // Not persisted; detection or adaptation runs again next visit.
+    }
+    cosmosRef.current?.setConfigPartial({
+      pixelRatio: Math.min(QUALITY_LEVELS[level].pixelRatio, window.devicePixelRatio || 1),
+    })
+    applyEdgeDensity(true)
+  }, [applyEdgeDensity])
+
+  // Adaptive quality controller. Samples frame times only while cosmos.gl is
+  // actually rendering (paused idle frames would read as fast), in windows of
+  // >= 0.6 s and >= 3 frames so very slow devices still converge in seconds.
+  useEffect(() => {
+    let raf = 0
+    let last = 0
+    let windowStart = 0
+    let samples: number[] = []
+    let fastWindows = 0
+    const tick = (now: number) => {
+      raf = window.requestAnimationFrame(tick)
+      const frames = cosmosRef.current as unknown as FrameControl | null
+      if (!frames?.requestAnimationFrameId || document.hidden || edgeBudgetOverrideRef.current > 0) {
+        last = 0
+        windowStart = 0
+        samples = []
+        return
+      }
+      if (last) samples.push(now - last)
+      last = now
+      windowStart ||= now
+      if (now - windowStart < 600 || samples.length < 3) return
+      const sorted = samples.sort((a, b) => a - b)
+      const median = sorted[Math.floor(sorted.length / 2)]
+      samples = []
+      windowStart = now
+      const level = qualityRef.current
+      if (median > SLOW_FRAME_MS && level < QUALITY_LEVELS.length - 1) {
+        qualityFloorRef.current = Math.max(qualityFloorRef.current, level + 1)
+        fastWindows = 0
+        applyQuality(level + 1)
+      } else if (median < FAST_FRAME_MS && level > qualityFloorRef.current) {
+        fastWindows += 1
+        if (fastWindows >= UPGRADE_WINDOWS) {
+          fastWindows = 0
+          applyQuality(level - 1)
+        }
+      } else {
+        fastWindows = 0
+      }
+    }
+    raf = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(raf)
+  }, [applyQuality])
+
+  // `?debug` exposes the renderer to scripts/gpu-bench.mjs; no effect otherwise.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('debug')) return
+    const hook = window as unknown as { __galaxyDebug?: unknown }
+    hook.__galaxyDebug = {
+      cosmos: () => cosmosRef.current,
+      payload: () => payloadRef.current,
+      setEdgeBudget: (n: number) => {
+        edgeBudgetOverrideRef.current = n
+        applyEdgeDensity(true)
+      },
+      wake: (busyMs: number) => wake(busyMs),
+      quality: () => qualityRef.current,
+      setQuality: (level: number) => applyQuality(level),
+    }
+    return () => { delete hook.__galaxyDebug }
+  }, [applyEdgeDensity, applyQuality, wake])
+
   useEffect(() => {
     onNodeClickRef.current = onNodeClick
     onBackgroundClickRef.current = onBackgroundClick
@@ -342,6 +480,7 @@ export function CosmosGalaxyView({
 
     const cosmos = new CosmosGraph(container, {
       ...COSMOS_CONFIG,
+      pixelRatio: Math.min(QUALITY_LEVELS[qualityRef.current].pixelRatio, window.devicePixelRatio || 1),
       onPointClick: (index: number) => {
         const nodeId = payloadRef.current?.nodeIds[index]
         if (nodeId) onNodeClickRef.current(nodeId)
@@ -400,9 +539,6 @@ export function CosmosGalaxyView({
     cosmos.setPointPositions(payload.positions)
     cosmos.setPointColors(payload.pointColors)
     cosmos.setPointSizes(payload.pointSizes)
-    // Upload every edge once; LOD and focus only rewrite widths from here on.
-    cosmos.setLinks(payload.sortedLinks)
-    cosmos.setLinkColors(payload.sortedLinkColors)
     if (selectedNodeRef.current) {
       focusSelection(true)
     } else {
@@ -524,6 +660,12 @@ export function CosmosGalaxyView({
                   <Slider.Thumb className={sliderThumb} aria-label="连线数量" />
                 </Slider.Root>
                 <div className="text-zinc-500">自动：缩放越近显示越少、越强的连线（当前最少 {edgeCutoff} 部共同作品）。</div>
+              </div>
+              <div className="flex justify-between border-t border-white/[0.06] pt-3">
+                <span>画质（按设备性能自动调节）</span>
+                <span className="tabular-nums text-zinc-100">
+                  {qualityLevel === 0 ? '最高' : `降 ${qualityLevel} 档`}
+                </span>
               </div>
             </Popover.Content>
           </Popover.Portal>
