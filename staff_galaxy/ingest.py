@@ -172,6 +172,9 @@ def anime_row(record: dict[str, Any]) -> dict[str, Any]:
         "platform": _int_or_none(record.get("platform")),
         "score": float(record["score"]) if record.get("score") is not None else None,
         "rank": _int_or_none(record.get("rank")),
+        # Bangumi users who collected it in any state: a popularity measure,
+        # unlike rank, which orders by rating.
+        "collects": sum(int(v or 0) for v in (record.get("favorite") or {}).values()),
     }
 
 
