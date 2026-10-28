@@ -1,7 +1,7 @@
 """Compare galaxy backbone extraction methods on the live Neo4j graph.
 
-Reproduces the table in docs/staff-galaxy/data-model-and-architecture.md
-"Graph Backbone Selection". Read-only; needs Neo4j running and ~2 minutes.
+Prints, per method: edges, people covered, largest-component share, modularity
+and the share of single-work edges. Read-only; needs Neo4j running and ~2 minutes.
 
     .venv/bin/python scripts/compare_backbones.py
 """

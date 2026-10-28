@@ -1,153 +1,142 @@
-# AnimeDNA
+# StaffGalaxy
 
-AnimeDNA 当前方向暂定为 **Staff Galaxy**：一个基于 Bangumi Archive 数据的动画制作人员合作星图。
+日本动画制作人员的合作星图。每个点是一位制作人员，每条线是两人之间统计上显著的合作关系；点开一个人，就能看到他参与过哪些作品、和谁合作最多，以及任意两个人之间隔着几个人。
 
-当前仓库包含 Neo4j 知识图谱数据管线、FastAPI 后端和 React/Cosmos.gl 前端。
+数据来自 [Bangumi](https://bgm.tv) 社区维护的 [Bangumi Archive](https://github.com/bangumi/Archive)，存放在 Neo4j 知识图谱里。
 
-建议阅读顺序：
+![星系全景：23,245 位制作人员、107,489 条合作关系，颜色是自动分出的合作圈子](.github/galaxy.jpeg)
 
-- [产品定义](docs/staff-galaxy/product-definition.md)
-- [设计系统](docs/DESIGN.md)
-- [数据模型与架构](docs/staff-galaxy/data-model-and-architecture.md)
-- [数据审计规格](docs/staff-galaxy/data-audit-spec.md)
-- [实现路线图](docs/staff-galaxy/implementation-roadmap.md)
-- [方向决策记录](docs/staff-galaxy/direction-decisions.md)
-- [MVP 验收标准](docs/staff-galaxy/mvp-acceptance.md)
+![以宫崎骏为中心：左边在星系中定位，右边是他的局部知识图谱和三元组](.github/person.jpeg)
 
-## 数据与导入
+## 能做什么
 
-安装 Python 包：
+- **星系**：两万多位主要制作人员，按合作关系自动聚成圈子。搜索一个人，画面会直接移到他身上。
+- **局部知识图谱**：以某人为中心的「人—作品」关系图，下方列出对应的三元组，比如「宮崎駿 —[导演、脚本]→ 千と千尋の神隠し」。点另一个人即可换中心。
+- **合作者与履历**：骨干合作者列表，展开能看到两人具体在哪些作品里各担任什么职位；完整履历保留原始职位名称。
+- **关系星图**：输入两个人，找出他们之间的最短合作路径。例如新海诚到宫崎骏只隔一个人。
+- **搜索**：支持 Bangumi ID、原名、简体、繁体、别名、罗马字和模糊匹配，输入「宫崎骏」能找到「宮崎駿」。
+
+## 原理
+
+**知识图谱。** 存储层是 Neo4j 属性图：
+
+```
+(:Person)-[:CREDITED {职位, 档位, 权重}]->(:Anime)
+(:Person)-[:VOICED]->(:Character)-[:APPEARS_IN]->(:Anime)
+```
+
+职位直接写在关系上，不需要像 RDF 那样为每次参与额外造节点。177 种职位按重要程度分为 S / A / B / C / D / E / F 七档（见 `staff_galaxy/roles.py`）。
+
+**星系里的线是怎么选的。** 只要一起出现过就连线的话，会有 165 万对，而且越高产的人和谁都能撞上几部。所以这里用二分图配置模型（BiCM，Saracco 等 2017）做显著性检验：保留每个人参与的作品数和每部作品的人数，其余随机，算出两人随机情况下的期望合作次数，实际明显更多才连线。对全部人员两两配对做 Benjamini–Hochberg 校正（FDR 5%），再补上最大生成森林，让只合作过一两部的人也不会孤立。最终保留 107,489 条（见 `staff_galaxy/visible_edges.py`）。
+
+例如宫崎骏和久石让：随机期望合作 0.19 部，实际 16 部。
+
+**布局。** 用 Leiden 算法划分社区，社区之间和社区内部分别做力导向布局（见 `staff_galaxy/layout.py`）。前端用 [cosmos.gl](https://github.com/cosmosgl/graph) 在 WebGL 中渲染，会根据帧率自动调节画质。
+
+## 数据与版权
+
+- 所有人物、作品和职位数据来自 [Bangumi Archive](https://github.com/bangumi/Archive)，版权归 Bangumi 及其贡献者所有。
+- **本仓库只包含代码，不包含也不分发任何 Bangumi 数据。** 运行前需要自行下载数据包（见下文）。
+- 数据由社区维护，可能有缺漏或错误；发现问题请到 Bangumi 对应条目修正。
+
+## 快速开始
+
+需要：Docker、Python 3.12+、Node.js 20.19+。
+
+### 1. 安装
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
+cd frontend && npm install && cd ..
+cp .env.example .env    # 然后把 NEO4J_PASSWORD 改成你自己的密码
 ```
 
-启动 Neo4j（Docker，Neo4j 5 Community + APOC + GDS）。先在项目根目录的 `.env`（已 git 忽略）里写好连接信息：
-
-```bash
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=<随便设一个>
-```
+### 2. 启动 Neo4j
 
 ```bash
 docker compose up -d neo4j
 ```
 
-Neo4j Browser：<http://localhost:7474>。数据目录在 `data/processed/neo4j/`。
+Neo4j Browser 在 <http://localhost:7474>，数据存放在 `data/processed/neo4j/`。
 
-准备本地数据：
+### 3. 下载数据
 
-```text
-data/raw/
-├── dump-YYYY-MM-DD.HHMMSSZ.zip
-├── bangumi-archive/aux/latest.json
-└── bangumi-common/subject_staffs.yml
+```bash
+mkdir -p data/raw/bangumi-archive/aux data/raw/bangumi-common
+
+# 最新数据包的元信息，里面带着下载地址
+curl -L -o data/raw/bangumi-archive/aux/latest.json \
+  https://raw.githubusercontent.com/bangumi/Archive/master/aux/latest.json
+
+# 数据包本体（约 450 MB）
+curl -L --output-dir data/raw -O \
+  "$(python3 -c 'import json; print(json.load(open("data/raw/bangumi-archive/aux/latest.json"))["browser_download_url"])')"
+
+# 职位编号与名称的对照表
+curl -L -o data/raw/bangumi-common/subject_staffs.yml \
+  https://raw.githubusercontent.com/bangumi/common/master/subject_staffs.yml
 ```
 
-完整重建知识图谱（会清空 Neo4j 里的现有数据）：
+### 4. 建图
 
 ```bash
 .venv/bin/python -m staff_galaxy.cli
 ```
 
-输出：Neo4j 中的完整图谱，以及 `reports/data-audit.md`。
+这一步会清空 Neo4j 里的现有数据，然后导入数据包并计算星系（合作关系筛选、社区划分、布局、搜索词），同时在 `reports/data-audit.md` 生成一份数据统计。
 
-改了角色权重或布局算法后，只重建派生层（`COLLAB` 边、星系节点、布局、搜索词），不重新导入：
+只改了职位权重或布局算法时，不必重新导入：
 
 ```bash
 .venv/bin/python -m staff_galaxy.cli --derived-only
 ```
 
-## 本地应用
-
-安装前端依赖：
+### 5. 运行
 
 ```bash
-cd frontend
-npm install
+# 后端（需要 Neo4j 已启动）
+.venv/bin/uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8000
+
+# 前端（另开一个终端）
+cd frontend && npm run dev
 ```
 
-运行后端 API（需要 Neo4j 已启动）：
-
-```bash
-.venv/bin/uvicorn staff_galaxy.api:app --reload --host 127.0.0.1 --port 8000
-```
-
-另开一个终端运行前端：
-
-```bash
-cd frontend
-npm run dev -- --host 127.0.0.1
-```
-
-打开：
+打开 <http://127.0.0.1:5173/>。可以直接分享的链接：
 
 ```text
-http://127.0.0.1:5173/
+/person/1040                    # 某个人
+/path?from=2064&to=1040         # 两人之间的最短路径
+/compare?from=1040&to=1638      # 两人的共同作品
 ```
 
-常用分享路由：
+数字是 Bangumi 的人物 ID。前端开发服务器会把 `/api` 代理到 `127.0.0.1:8000`。生产构建用 `npm run build`，然后 `npm run preview` 预览。
 
-```text
-/person/1040
-/compare?from=1040&to=2215
-/path?from=1040&to=11706
-```
+## API
 
-生产构建预览和性能测量：
+| Endpoint | 用途 |
+|---|---|
+| `GET /api/manifest` | 数据快照信息和星系规模 |
+| `GET /api/graph/buffers` | 星系的二进制几何数据（位置、大小、社区、边） |
+| `GET /api/graph/meta` | 星系节点的名字和度数 |
+| `GET /api/search/persons?q=...` | 搜索人物 |
+| `GET /api/person/{id}/detail` | 人物摘要、常见职位、近期作品 |
+| `GET /api/person/{id}/credits` | 完整履历 |
+| `GET /api/person/{id}/galaxy` | 骨干合作者 |
+| `GET /api/person/{id}/knowledge-graph` | 局部知识图谱 |
+| `GET /api/collaboration/{a}/{b}` | 两人的共同作品 |
+| `GET /api/path/{a}/{b}` | 两人之间的最短合作路径 |
 
-```bash
-cd frontend
-npm run build
-npm run preview -- --host 127.0.0.1 --port 4173
-```
+## 测试
 
-Vite dev 和 preview 都会把 `/api` 代理到 `http://127.0.0.1:8000`。
-
-## 验证
-
-测试使用一个独立的、会被清空的 Neo4j 实例（端口 7688），不会动主图谱：
+测试使用一个独立的、会被清空的 Neo4j 实例（端口 7688），不影响主图谱：
 
 ```bash
 docker compose --profile test up -d neo4j-test
 .venv/bin/python -m unittest -v tests.test_api_complete_graph
-.venv/bin/python -m compileall staff_galaxy scripts tests
-cd frontend && npm run build
-git diff --check
+cd frontend && npm run lint && npm run build
 ```
 
-前端默认通过 Vite 代理访问后端；后端通过 `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` 连接图谱（环境变量优先于 `.env`）。
+## 许可证
 
-前端配置：
-
-```bash
-VITE_BANGUMI_BASE_URL=https://bgm.tv
-```
-
-## API 快览
-
-后端默认地址：`http://127.0.0.1:8000`
-
-| Endpoint | 用途 |
-|---|---|
-| `GET /api/manifest` | 图谱地址、Archive 快照、星系计数 |
-| `GET /api/graph/buffers` | 星系二进制几何（位置、大小、社区、边） |
-| `GET /api/graph/meta` | 星系节点元数据（名字、度数） |
-| `GET /api/person/{id}/galaxy` | 星系成员的骨干合作者（侧栏列表） |
-| `GET /api/person/{id}/knowledge-graph` | 局部知识图谱：(人)—[职位]→(作品) 子图 |
-| `GET /api/person/{id}/detail` | 人物摘要、常见职位、最近参与作品 |
-| `GET /api/person/{id}/credits` | 完整动画职位履历，保留 raw role |
-| `GET /api/search/persons?q=...` | ID / 原名 / 简中 / 繁中 / 别名 / 罗马字 / 模糊搜索 |
-| `GET /api/collaboration/{a}/{b}` | 两人直接共同作品证据 |
-| `GET /api/path/{a}/{b}` | 在完整 Person–Anime 图上的最短合作路径 |
-
-## 数据语义
-
-- 存储层是知识图谱：`(:Person)-[:CREDITED {职位, 档位, 权重}]->(:Anime)`，另有 `Character`、`Position`、`SearchTerm` 节点。
-- 星系视图里的节点只有 Bangumi `person.type = 1` 的真实个人；作品是边背后的证据，不在星系中渲染。
-- 星系边是预计算的 `COLLAB` 骨干：在二分图配置模型（BiCM）下统计显著的合作（FDR 0.05），并上最大生成森林保证不孤立任何人；比较和路径直接在完整 `CREDITED` 图上实时推导。
-- 只分析 `subject.type = 2` 的动画作品。
-
-更多阶段记录见 [Goal Progress](reports/goal-progress.md)，当前性能记录见 [Graph Performance](reports/graph-performance.md)。
+代码以 [MIT](LICENSE) 许可证发布。数据的版权见上文「数据与版权」。

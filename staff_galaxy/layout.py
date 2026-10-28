@@ -1,8 +1,7 @@
 """Hierarchical Leiden + force-directed layout for the visible galaxy graph.
 
 Replaces the deterministic spiral (`deterministic_spiral_v1`) with the
-two-level recipe validated by map-of-github (see
-docs/staff-galaxy/edge-rendering-performance-plan.md §4.4 / Phase 3):
+two-level recipe validated by map-of-github:
 
 1. Leiden community detection on the visible staff-collaboration graph
    (edges weighted by collaboration_score).

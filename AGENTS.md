@@ -80,7 +80,7 @@ collaboration_score = SUM( SQRT(w1 × w2) )  for each shared work
 
 The geometric mean ensures both people must have significant roles for a high score. Two directors on one show (50) ≈ two key animators on 17 shows (3 × 17 = 51).
 
-Graph backbone: galaxy members are people with a credit at `role_weight >= 12.0` (S+A+B tiers); edges are the BiCM-validated projection of that layer (FDR 0.05 over all person pairs) united with the maximum spanning forest — 23,245 nodes / 107,489 edges on `dump-2026-10-20`. Method and comparison against top-k, disparity filter, hypergeometric SVN, and noise-corrected backbones: `docs/staff-galaxy/data-model-and-architecture.md` "Graph Backbone Selection".
+Graph backbone: galaxy members are people with a credit at `role_weight >= 12.0` (S+A+B tiers); edges are the BiCM-validated projection of that layer (FDR 0.05 over all person pairs) united with the maximum spanning forest — 23,245 nodes / 107,489 edges on `dump-2026-10-20`. `scripts/compare_backbones.py` compares it against top-k, disparity filter, hypergeometric SVN, and noise-corrected backbones.
 
 Tier definitions live in `staff_galaxy/roles.py`. Edge and node builders are in `staff_galaxy/visible_edges.py` and `staff_galaxy/graph_nodes.py`.
 
@@ -120,8 +120,7 @@ Cypher `ALL SHORTEST` over `(:Person)-[:CREDITED]-(:Anime)` (one collaboration h
 
 - Vite 8 + React 19 + TypeScript
 - Tailwind CSS 4
-- Cosmos.gl (`@cosmos.gl/graph`) v3 — WebGL graph renderer (upgraded from 2.6.4;
-  see `docs/staff-galaxy/edge-rendering-performance-plan.md` Phase 1)
+- Cosmos.gl (`@cosmos.gl/graph`) v3 — WebGL graph renderer
 - react-force-graph-2d — the local knowledge-graph panel (d3-force + canvas;
   drag, zoom, hover and idle redraw pausing come from the library)
 - radix-ui (unstyled primitives: Tabs, Popover, Tooltip, Collapsible,
@@ -220,24 +219,16 @@ Cypher `ALL SHORTEST` over `(:Person)-[:CREDITED]-(:Anime)` (one collaboration h
 
 ### Performance characteristics
 
-- (Measured before the BiCM backbone, which cut edges ~5× to 107,489.) Single global graph as of `dump-2026-06-30`: 21,383 nodes / 529,310 edges,
-  shipped as `/api/graph/buffers` (7.8 MB raw / 1.84 MB gzip) +
-  `/api/graph/meta` (2.78 MB / 566 KB gzip). `graph-buffers-loaded` metric
-  ≈1.2–2.1 s cold in headless Chrome; canvas visible ≈2.25–5 s end-to-end on
-  SwiftShader (device init dominates; real GPUs are faster). See
-  `reports/graph-performance.md` "Phase 2+3".
 - Layout is `hier_leiden_fr_v1` (Leiden + inter-cluster FR + circle packing +
-  intra-cluster FR/DrL, `staff_galaxy/layout.py`): 481 communities, 58.4% of
-  edges intra-community, mean edge length 11.2 vs 3,717 span, 139 s build.
+  intra-cluster FR/DrL, `staff_galaxy/layout.py`).
 - Zoom-dependent edge budget (prefix slice of the strength-sorted arrays) keeps
   visible edges manageable without discarding data; a slider overrides it
-  manually up to the full 529,310.
+  manually up to every edge.
 - cosmos.gl v3's luma.gl (WebGL2) port is heavier than the old regl-based v2:
   the lazy Cosmos chunk is ~655 KB (~151 KB gzip).
 - **Dev-server (`npm run dev`) load times are not representative** — React 19
   StrictMode double-invokes mount effects in development. Always measure against
-  a production build, matching this project's existing convention in
-  `reports/graph-performance.md`.
+  a production build.
 
 ## Commands
 
@@ -306,39 +297,6 @@ data/
 ```
 
 Raw and processed data, and `.env`, are git-ignored.
-
-## Reports
-
-```
-reports/
-  data-audit.md             # Latest database snapshot statistics
-  archive-feasibility.md    # Original archive exploration
-  position-role-audit.md    # Position classification audit
-```
-
-Note: reports may be stale (performance reports predate the Neo4j migration). Trust the code and graph over report numbers.
-
-## Design Docs Precedence
-
-`docs/staff-galaxy/` holds design and research docs. They are not all current
-to the same date — when they conflict, newer supersedes older:
-
-- **`docs/staff-galaxy/edge-rendering-performance-plan.md` is the current
-  authoritative plan for graph rendering/performance work** (nebula edge
-  rendering, cosmos.gl version, node/edge transport format, layout
-  algorithm). Its Phase 1/2/3 are implemented — the three-level
-  global/l0/l1 system and the JSON graph endpoints are gone, replaced by a
-  single binary graph and the `hier_leiden_fr_v1` layout; Phase 4 (label
-  polish) and Phase 5 (26M-edge contingency) remain proposals.
-- `docs/staff-galaxy/frontend-rendering-research.md` and
-  `reports/graph-performance.md` describe the *pre-rewrite* architecture
-  (Cosmos.gl 2.6.4, JSON transport, three-tier global/l0/l1 levels,
-  spiral layout) wherever they have not been annotated — do not use them
-  to justify keeping the old three-tier level system or the JSON graph
-  endpoints.
-- If you are implementing part of the plan, update these older docs (or
-  mark the superseded sections) as you go, rather than leaving
-  contradictory docs for the next agent to untangle.
 
 ## Collaboration Rules
 

@@ -34,3 +34,6 @@ test-results/
 .env.*
 !.env.example
 .claude/settings.local.json
+
+# CLI output (data audit report).
+reports/
