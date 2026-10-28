@@ -1,5 +1,5 @@
 [project]
-name = "animedna"
+name = "staff-galaxy"
 version = "0.1.0"
 description = "Staff Galaxy: a Neo4j knowledge graph of Bangumi Archive anime staff collaboration."
 requires-python = ">=3.12"

@@ -1,7 +1,7 @@
 services:
   neo4j:
     image: neo4j:5-community
-    container_name: animedna-neo4j
+    container_name: staff-galaxy-neo4j
     ports:
       - "7474:7474"  # Neo4j Browser
       - "7687:7687"  # Bolt
@@ -20,7 +20,7 @@ services:
   # Throwaway instance for the test suite (tests wipe it): docker compose --profile test up -d
   neo4j-test:
     image: neo4j:5-community
-    container_name: animedna-neo4j-test
+    container_name: staff-galaxy-neo4j-test
     profiles: ["test"]
     ports:
       - "7688:7687"
