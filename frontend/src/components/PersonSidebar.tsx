@@ -162,22 +162,22 @@ function CollaboratorsTab({
 }) {
   const [role, setRole] = useState<RoleFilter>('all')
   const [time, setTime] = useState<TimeFilter>('all')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<CollaborationDetail | null>(null)
+  // Both are tagged with what they belong to, so switching person collapses
+  // the row and a stale detail is never shown while the next one loads.
+  const [expanded, setExpanded] = useState<{ personId: string; id: string } | null>(null)
+  const expandedId = expanded?.personId === personId ? expanded.id : null
+  const detailKey = expandedId ? `${personId}|${expandedId}` : null
+  const [detailResult, setDetailResult] = useState<{ key: string; data: CollaborationDetail | null } | null>(null)
+  const detail = detailResult?.key === detailKey ? detailResult.data : null
 
   useEffect(() => {
-    setExpandedId(null)
-  }, [personId])
-
-  useEffect(() => {
-    if (!expandedId) return
+    if (!expandedId || !detailKey) return
     let cancelled = false
-    setDetail(null)
     loadCollaborationDetail(personId, expandedId)
-      .then(data => { if (!cancelled) setDetail(data) })
-      .catch(() => { if (!cancelled) setDetail(null) })
+      .then(data => { if (!cancelled) setDetailResult({ key: detailKey, data }) })
+      .catch(() => { if (!cancelled) setDetailResult({ key: detailKey, data: null }) })
     return () => { cancelled = true }
-  }, [expandedId, personId])
+  }, [detailKey, expandedId, personId])
 
   const visible = useMemo(
     () => neighbors.filter(n => matchesRole(n.attrs.neighborRoleTier, role) && matchesTime(n.lastYear, time)),
@@ -244,7 +244,7 @@ function CollaboratorsTab({
           const secondary = secondaryPersonName(person, nameMode)
           const open = expandedId === n.id
           return (
-            <Collapsible.Root asChild key={n.id} open={open} onOpenChange={value => setExpandedId(value ? n.id : null)}>
+            <Collapsible.Root asChild key={n.id} open={open} onOpenChange={value => setExpanded(value ? { personId, id: n.id } : null)}>
               <li className={`rounded-md ${open ? 'bg-white/[0.04]' : ''}`}>
                 <div className="grid grid-cols-[1fr_auto_2.5rem_3.5rem] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/[0.04]">
                   <button type="button" onClick={() => onSelect(n.id)} className="min-w-0 text-left">
@@ -293,11 +293,11 @@ function groupCredits(credits: PersonCredit[]) {
 }
 
 function CreditsTab({ personId, nameMode }: { personId: string; nameMode: PersonNameMode }) {
-  const [credits, setCredits] = useState<PersonCreditsResponse | null>(null)
+  const [result, setResult] = useState<{ personId: string; data: PersonCreditsResponse } | null>(null)
+  const credits = result?.personId === personId ? result.data : null
   useEffect(() => {
     let cancelled = false
-    setCredits(null)
-    loadPersonCredits(personId).then(data => { if (!cancelled) setCredits(data) }).catch(() => {})
+    loadPersonCredits(personId).then(data => { if (!cancelled) setResult({ personId, data }) }).catch(() => {})
     return () => { cancelled = true }
   }, [personId])
   const groups = useMemo(() => groupCredits(credits?.credits ?? []), [credits])
@@ -333,16 +333,22 @@ function KnowledgeGraphTab({ personId, nameMode, onSelect }: {
   nameMode: PersonNameMode
   onSelect: (id: string) => void
 }) {
+  // The previous graph stays up while the next loads (re-centering animates
+  // from it); failure and hover belong to one person and lapse on a switch.
   const [graph, setGraph] = useState<PersonKnowledgeGraph | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [hoverKey, setHoverKey] = useState<string | null>(null)
+  const [failedFor, setFailedFor] = useState<string | null>(null)
+  const failed = failedFor === personId
+  const [hover, setHover] = useState<{ personId: string; key: string | null } | null>(null)
+  const hoverKey = hover?.personId === personId ? hover.key : null
   useEffect(() => {
     let cancelled = false
-    setFailed(false)
-    setHoverKey(null)
     loadPersonKnowledgeGraph(personId)
-      .then(data => { if (!cancelled) setGraph(data) })
-      .catch(() => { if (!cancelled) setFailed(true) })
+      .then(data => {
+        if (cancelled) return
+        setGraph(data)
+        setFailedFor(null)
+      })
+      .catch(() => { if (!cancelled) setFailedFor(personId) })
     return () => { cancelled = true }
   }, [personId])
 
@@ -372,7 +378,7 @@ function KnowledgeGraphTab({ personId, nameMode, onSelect }: {
         {!failed && !graph && <div className="px-4 py-3 text-sm text-zinc-500">加载中…</div>}
         {!failed && graph && (
           <Suspense fallback={null}>
-            <LocalKnowledgeGraph graph={graph} personNameMode={nameMode} onSelectPerson={onSelect} onHoverChange={setHoverKey} />
+            <LocalKnowledgeGraph graph={graph} personNameMode={nameMode} onSelectPerson={onSelect} onHoverChange={key => setHover({ personId, key })} />
           </Suspense>
         )}
         <div className="pointer-events-none absolute bottom-2 left-3 flex gap-3 text-xs text-zinc-400">
@@ -426,13 +432,13 @@ export function PersonSidebar({
   onSelectPerson: (id: string) => void
   onCompare: (a: string, b: string) => void
 }) {
-  const [detail, setDetail] = useState<PersonDetail | null>(null)
+  const [result, setResult] = useState<{ personId: string; data: PersonDetail } | null>(null)
+  const detail = result?.personId === personId ? result.data : null
   const [tab, setTab] = useState('graph')
 
   useEffect(() => {
     let cancelled = false
-    setDetail(null)
-    loadPersonDetail(personId).then(data => { if (!cancelled) setDetail(data) }).catch(() => {})
+    loadPersonDetail(personId).then(data => { if (!cancelled) setResult({ personId, data }) }).catch(() => {})
     return () => { cancelled = true }
   }, [personId])
 

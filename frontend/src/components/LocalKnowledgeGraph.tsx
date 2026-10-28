@@ -40,6 +40,17 @@ function truncate(text: string, max: number) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
+// Stable offset in [-0.5, 0.5) from a node key (FNV-1a), so a new node's
+// starting spot is reproducible instead of random.
+function jitter(key: string, salt: string): number {
+  let hash = 0x811c9dc5
+  for (const char of key + salt) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0) / 0x1_0000_0000 - 0.5
+}
+
 function endpointKey(end: string | number | NodeObject<KgNode> | undefined): string {
   return typeof end === 'object' ? (end as KgNode).key : String(end)
 }
@@ -58,11 +69,14 @@ export function LocalKnowledgeGraph({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const graphRef = useRef<ForceGraphMethods<NodeObject<KgNode>, LinkObject<KgNode, KgLink>> | undefined>(undefined)
   // Last positions by key: a new center keeps shared nodes in place, so
-  // re-centering reads as one continuous graph instead of a fresh layout.
-  const positionsRef = useRef(new Map<string, { x: number; y: number }>())
+  // re-centering reads as one continuous graph instead of a fresh layout. One
+  // Map for the component's lifetime; the simulation fills it, renders read it.
+  const [positions] = useState(() => new Map<string, { x: number; y: number }>())
   const fittedRef = useRef(false)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const [hoverKey, setHoverKey] = useState<string | null>(null)
+  // Hover belongs to one graph; a new graph starts unhovered.
+  const [hover, setHover] = useState<{ graph: PersonKnowledgeGraph; key: string | null } | null>(null)
+  const hoverKey = hover?.graph === graph ? hover.key : null
 
   useEffect(() => {
     const container = containerRef.current
@@ -80,9 +94,9 @@ export function LocalKnowledgeGraph({
       degree.set(link.source, (degree.get(link.source) ?? 0) + 1)
       degree.set(link.target, (degree.get(link.target) ?? 0) + 1)
     }
-    const anchor = positionsRef.current.get(`p:${graph.centerId}`) ?? { x: 0, y: 0 }
+    const anchor = positions.get(`p:${graph.centerId}`) ?? { x: 0, y: 0 }
     const nodes = graph.nodes.map((node): NodeObject<KgNode> => {
-      const known = positionsRef.current.get(node.key)
+      const known = positions.get(node.key)
       const isCenter = node.kind === 'person' && node.isCenter
       return {
         key: node.key,
@@ -94,8 +108,8 @@ export function LocalKnowledgeGraph({
           : isCenter ? '中心人物' : `合作 ${node.sharedWorksCount ?? 0} 部`,
         isCenter,
         val: isCenter ? 7 : 1 + (degree.get(node.key) ?? 0) * 0.35,
-        x: known?.x ?? anchor.x + (Math.random() - 0.5) * 40,
-        y: known?.y ?? anchor.y + (Math.random() - 0.5) * 40,
+        x: known?.x ?? anchor.x + jitter(node.key, 'x') * 40,
+        y: known?.y ?? anchor.y + jitter(node.key, 'y') * 40,
       }
     })
     const links = graph.links.map((link): KgLink => ({
@@ -105,7 +119,7 @@ export function LocalKnowledgeGraph({
       weight: link.roleWeight,
     }))
     return { nodes, links }
-  }, [graph, personNameMode])
+  }, [graph, personNameMode, positions])
 
   const adjacency = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -120,7 +134,6 @@ export function LocalKnowledgeGraph({
 
   useEffect(() => {
     fittedRef.current = false
-    setHoverKey(null)
   }, [data])
 
   // Longer links and stronger repulsion than the defaults keep labels apart.
@@ -152,7 +165,7 @@ export function LocalKnowledgeGraph({
           nodeRelSize={3.2}
           cooldownTicks={180}
           onEngineTick={() => {
-            for (const node of data.nodes) positionsRef.current.set(node.key, { x: node.x ?? 0, y: node.y ?? 0 })
+            for (const node of data.nodes) positions.set(node.key, { x: node.x ?? 0, y: node.y ?? 0 })
           }}
           onEngineStop={() => {
             if (fittedRef.current) return
@@ -226,7 +239,7 @@ export function LocalKnowledgeGraph({
             ctx.globalAlpha = 1
           }}
           onNodeHover={node => {
-            setHoverKey(node?.key ?? null)
+            setHover({ graph, key: node?.key ?? null })
             onHoverChange?.(node?.key ?? null)
           }}
           onNodeClick={node => {

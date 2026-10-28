@@ -107,6 +107,12 @@ const COSMOS_CONFIG = {
 
 const MIN_EDGE_BUDGET = 20_000
 
+// Settings slider position (1–100) → edge budget, log-spaced up to every edge.
+function edgeBudgetForSlider(slider: number, totalEdges: number): number {
+  const t = (slider - 1) / 99
+  return Math.round(Math.exp(Math.log(MIN_EDGE_BUDGET) + t * (Math.log(totalEdges) - Math.log(MIN_EDGE_BUDGET))))
+}
+
 const sliderRoot = 'relative flex h-4 w-full touch-none select-none items-center'
 const sliderTrack = 'relative h-1 grow rounded bg-white/10'
 const sliderRange = 'absolute h-full rounded bg-[#f5c76b]'
@@ -568,9 +574,7 @@ export function CosmosGalaxyView({
     focusSelection(true)
   }, [focusSelection, selectedNode])
 
-  const edgeBudgetDisplay = edgeBudgetOverrideRef.current > 0
-    ? edgeBudgetOverrideRef.current.toLocaleString()
-    : 'auto'
+  const edgeBudgetDisplay = edgeBudgetForSlider(edgeBudgetSlider, payload.totalEdgeCount).toLocaleString()
 
   return (
     <div className="relative h-full w-full bg-[#0b0c10]">
@@ -643,15 +647,9 @@ export function CosmosGalaxyView({
                   value={[edgeBudgetSlider]}
                   onValueChange={([slider]) => {
                     setEdgeBudgetSlider(slider)
-                    if (slider === 0) {
-                      edgeBudgetOverrideRef.current = 0
-                    } else {
-                      const total = payloadRef.current?.totalEdgeCount ?? MIN_EDGE_BUDGET
-                      const t = (slider - 1) / 99
-                      edgeBudgetOverrideRef.current = Math.round(
-                        Math.exp(Math.log(MIN_EDGE_BUDGET) + t * (Math.log(total) - Math.log(MIN_EDGE_BUDGET))),
-                      )
-                    }
+                    edgeBudgetOverrideRef.current = slider === 0
+                      ? 0
+                      : edgeBudgetForSlider(slider, payloadRef.current?.totalEdgeCount ?? MIN_EDGE_BUDGET)
                     applyEdgeDensity(true)
                   }}
                   className={sliderRoot}

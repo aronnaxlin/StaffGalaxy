@@ -102,12 +102,16 @@ export default function App() {
   const [personNameMode, setPersonNameMode] = useState<PersonNameMode>(getInitialPersonNameMode)
   const [neighborLimit, setNeighborLimit] = useState(NEIGHBOR_LIMIT_DEFAULT)
   const [neighborMinShared, setNeighborMinShared] = useState(NEIGHBOR_MIN_SHARED_DEFAULT)
-  const [neighborData, setNeighborData] = useState<LevelData | null>(null)
+  // Tagged with the request it answers, so a stale list is never shown while
+  // the next one loads.
+  const [neighborResult, setNeighborResult] = useState<{ key: string; data: LevelData } | null>(null)
   const [manifest, setManifest] = useState<Manifest | null>(null)
 
   // Selection is part of the URL (/person/:id) but never swaps the scene: the
   // galaxy stays loaded and focuses the person in place.
   const selectedNode = route.view === 'galaxy' ? route.personId ?? null : null
+  const neighborKey = selectedNode ? `${selectedNode}|${neighborLimit}|${neighborMinShared}` : null
+  const neighborData = neighborResult && neighborResult.key === neighborKey ? neighborResult.data : null
 
   useEffect(() => {
     let cancelled = false
@@ -144,17 +148,13 @@ export default function App() {
   // Collaborator list for the side panel. People outside the galaxy have no
   // backbone neighbors (404); the panel then shows an empty list.
   useEffect(() => {
-    if (!selectedNode) {
-      setNeighborData(null)
-      return
-    }
+    if (!selectedNode || !neighborKey) return
     let cancelled = false
-    setNeighborData(null)
     loadPersonGalaxy(selectedNode, { limit: neighborLimit, minShared: neighborMinShared })
-      .then(data => { if (!cancelled) setNeighborData(data) })
-      .catch(() => { if (!cancelled) setNeighborData({ nodes: [], edges: [] }) })
+      .then(data => { if (!cancelled) setNeighborResult({ key: neighborKey, data }) })
+      .catch(() => { if (!cancelled) setNeighborResult({ key: neighborKey, data: { nodes: [], edges: [] } }) })
     return () => { cancelled = true }
-  }, [neighborLimit, neighborMinShared, selectedNode])
+  }, [neighborKey, neighborLimit, neighborMinShared, selectedNode])
 
   const payload = useMemo(
     () => (globalData ? buildGlobalPayload(globalData, personNameMode) : null),

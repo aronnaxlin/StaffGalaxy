@@ -41,14 +41,18 @@ export function SearchBar({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Debounced search
-  useEffect(() => {
-    if (query.length < 1) {
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value)
+    if (value.length < 1) {
       setResults([])
       setOpen(false)
-      return
     }
+  }, [])
+
+  // Debounced search
+  useEffect(() => {
     if (debounceRef.current !== null) clearTimeout(debounceRef.current)
+    if (query.length < 1) return
 
     debounceRef.current = window.setTimeout(() => {
       setLoading(true)
@@ -145,7 +149,7 @@ export function SearchBar({
           ref={inputRef}
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => handleQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setOpen(true) }}
           placeholder=""
@@ -164,7 +168,7 @@ export function SearchBar({
         ref={inputRef}
         type="text"
         value={query}
-        onChange={e => setQuery(e.target.value)}
+        onChange={e => handleQueryChange(e.target.value)}
         onFocus={() => { if (results.length > 0) setOpen(true) }}
         onKeyDown={handleKeyDown}
         placeholder="搜索人名或 Bangumi ID"
