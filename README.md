@@ -1,5 +1,12 @@
 # StaffGalaxy
 
+[![在线访问](https://img.shields.io/badge/在线访问-sg.aronnax.site-f09199)](https://sg.aronnax.site)
+[![数据](https://img.shields.io/badge/数据-Bangumi_Archive_2026--10--20-4a90d9)](https://github.com/bangumi/Archive)
+[![License](https://img.shields.io/github/license/aronnaxlin/StaffGalaxy)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
+![Neo4j](https://img.shields.io/badge/Neo4j-5-4581c3?logo=neo4j&logoColor=white)
+
 日本动画制作人员的合作星图。每个点是一位制作人员，每条线是两人之间统计上显著的合作关系；点开一个人，就能看到他参与过哪些作品、和谁合作最多，以及任意两个人之间隔着几个人。
 
 数据来自 [Bangumi](https://bgm.tv) 社区维护的 [Bangumi Archive](https://github.com/bangumi/Archive)，存放在 Neo4j 知识图谱里。
@@ -32,6 +39,17 @@
 例如宫崎骏和久石让：随机期望合作 0.19 部，实际 16 部。
 
 **布局。** 用 Leiden 算法划分社区，社区之间和社区内部分别做力导向布局（见 `staff_galaxy/layout.py`）。前端用 [cosmos.gl](https://github.com/cosmosgl/graph) 在 WebGL 中渲染，会根据帧率自动调节画质。
+
+## 局限
+
+- **没有声优。** 只统计制作人员（Staff）名单。图谱里虽然存了配音关系（`VOICED`），但星系、最短路径和网页都不使用。声优只有在担任过制作职位（比如演唱主题曲）时才会出现。
+- **只有动画。** 只收录 Bangumi 的动画条目，不含游戏、书籍、音乐和三次元作品；只收录个人，不含公司和团体，所以看不到制作公司。
+- **星系只收主要职位。** 至少担任过一次 B 档及以上职位（如监督、脚本、分镜、演出、音乐、制片）的人才会进入星系，共 23,245 人。只做过原画、动画等职位的人不在星系里，也搜不到。
+- **数据有缺口。** 数据库里的 31,215 部动画中有 9,915 部没有任何制作人员记录，老作品和冷门作品尤其不全。履历以 Bangumi 上的录入为准，没录就算不上合作。
+- **不是实时数据。** 当前用的是 2026-10-20 的 Archive 数据包，Bangumi 上的新修改要等下次重新建图后才会出现。
+- **「合作」只表示同时出现在一部作品的名单里**，不代表两人实际共事过；大型作品里同属一个名单的人可能从未见过面。星系里的线经过了显著性筛选，但最短路径和共同作品是按完整名单算的。
+- **不区分 NSFW 作品**，全部计入。公开站点（`deploy-sqlite` 分支）默认隐藏，可用开关打开。
+- **手机端没有专门适配**，建议在电脑上浏览。
 
 ## 数据与版权
 
