@@ -258,6 +258,7 @@ export default function App() {
           <CosmosGalaxyView
             payload={payload}
             selectedNode={selectedNode}
+            personNameMode={personNameMode}
             onNodeClick={selectPerson}
             onBackgroundClick={clearSelection}
           />

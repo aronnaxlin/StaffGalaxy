@@ -31,7 +31,8 @@ SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB);
 CREATE TABLE person (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, name_cn TEXT NOT NULL, name_tw TEXT NOT NULL,
-    career_json TEXT NOT NULL, summary TEXT NOT NULL
+    career_json TEXT NOT NULL, summary TEXT NOT NULL,
+    comments INTEGER NOT NULL, collects INTEGER NOT NULL  -- Bangumi person-page activity
 );
 CREATE TABLE anime (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, name_cn TEXT NOT NULL, date TEXT NOT NULL, year INTEGER,
@@ -108,6 +109,9 @@ class Store:
         self.graph_info: dict[str, Any] = json.loads(meta["graph"])
         self.graph_buffers: bytes = meta["graph_buffers"]
         self.graph_meta: bytes = meta["graph_meta"]
+        # Stores exported before community labels existed simply have none.
+        self.community_labels: bytes = meta.get("community_labels") or b"[]"
+        self.featured_people: bytes = meta.get("featured_people") or b"[]"
 
     def connection(self) -> sqlite3.Connection:
         """One read-only connection per thread (FastAPI runs sync endpoints in a threadpool)."""

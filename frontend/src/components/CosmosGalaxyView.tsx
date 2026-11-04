@@ -4,12 +4,16 @@ import { Popover, Slider } from 'radix-ui'
 import { Settings2 } from 'lucide-react'
 import type { CosmosPayload } from '../data/cosmosPayload'
 import { COSMOS_SPACE_SIZE } from '../data/cosmosPayload'
+import { loadCommunityLabels, loadFeaturedPeople } from '../data/loader'
+import { displaySubjectName } from '../data/personNames'
 import { recordRuntimeMetric } from '../data/runtimeMetrics'
+import type { CommunityLabel, PersonNameMode } from '../types'
 import { iconButton, panelShell } from './ui'
 
 interface CosmosGalaxyViewProps {
   payload: CosmosPayload
   selectedNode: string | null
+  personNameMode: PersonNameMode
   onNodeClick: (nodeId: string) => void
   onBackgroundClick: () => void
 }
@@ -20,6 +24,88 @@ interface GraphLabel {
   x: number
   y: number
   center: boolean
+}
+
+interface CommunityTag {
+  id: string
+  level: 0 | 1
+  title: string
+  subtitle: string
+  x: number
+  y: number
+}
+
+interface AvatarSpot {
+  id: string
+  x: number
+  y: number
+  size: number
+}
+
+// A community drawn at least this many pixels across (75th-percentile radius)
+// is labelled by its sub-communities instead; below MIN it gets no label.
+const COMMUNITY_SPLIT_PX = 220
+const COMMUNITY_MIN_PX = 28
+// Sub-communities spread over most of their parent have no spot to label.
+const SUB_COMMUNITY_MAX_SPREAD = 0.6
+
+// Only featured people get avatars (/api/graph/featured: the strongest and the
+// most discussed on Bangumi), and only those on screen load. They replace dots
+// where they do not overlap, in list order, so zooming in reveals more of them.
+// Pixels at the opening view. Zooming in, avatars grow like the dots
+// (zoom^POINT_ZOOM_GROWTH); zooming out, they shrink with the view.
+const AVATAR_SIZE = 24
+const AVATAR_MIN_SIZE = 16
+const AVATAR_MAX_SIZE = 44
+// Bangumi redirects to the image (cached a day); people without one get a
+// 500×500 placeholder, while real grid avatars are 75×75.
+const AVATAR_PLACEHOLDER_MIN_WIDTH = 100
+const HEADER_HEIGHT = 76
+
+// The opening view frames the dense core, not the whole space: isolates sit on
+// an outer ring and small communities drift to the rim, and fitting all of
+// them leaves the galaxy a small disc in the middle of the screen.
+const CORE_DISTANCE_QUANTILE = 0.8
+const CORE_FIT_PADDING = 0.04
+
+function coreIndices(payload: CosmosPayload): number[] {
+  const connected: number[] = []
+  for (let i = 0; i < payload.degrees.length; i += 1) {
+    if (payload.degrees[i] > 0) connected.push(i)
+  }
+  const quantile = (values: number[], q: number) =>
+    values.sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * q))] ?? 0
+  const cx = quantile(connected.map(i => payload.positions[i * 2]), 0.5)
+  const cy = quantile(connected.map(i => payload.positions[i * 2 + 1]), 0.5)
+  const distance = (i: number) => Math.hypot(payload.positions[i * 2] - cx, payload.positions[i * 2 + 1] - cy)
+  const cutoff = quantile(connected.map(distance), CORE_DISTANCE_QUANTILE)
+  return connected.filter(i => distance(i) <= cutoff)
+}
+
+function avatarUrl(personId: string): string {
+  return `https://api.bgm.tv/v0/persons/${personId}/image?type=grid`
+}
+
+// Hidden until loaded so a slow network shows the plain dot, then fades in.
+function Avatar({ spot, onMissing }: { spot: AvatarSpot; onMissing: (id: string) => void }) {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <img
+      src={avatarUrl(spot.id)}
+      alt=""
+      decoding="async"
+      draggable={false}
+      onLoad={event => {
+        if (event.currentTarget.naturalWidth > AVATAR_PLACEHOLDER_MIN_WIDTH) onMissing(spot.id)
+        else setLoaded(true)
+      }}
+      onError={() => onMissing(spot.id)}
+      className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full object-cover ring-1 ring-white/30 transition-opacity duration-300 ${
+        loaded ? 'opacity-100' : 'opacity-0'
+      }`}
+      style={{ left: spot.x, top: spot.y, width: spot.size, height: spot.size }}
+    />
+  )
 }
 
 // Edge count to keep on screen at the current zoom level, taken as a prefix of the
@@ -77,6 +163,12 @@ const FOCUS_EDGE_RGBA = [245 / 255, 199 / 255, 107 / 255, 0.55] as const
 // the GPU busy even when nothing moves. Rendering pauses after this much quiet.
 const IDLE_PAUSE_MS = 1500
 
+// cosmos.gl draws points at size × zoom, so zooming in 4× made every dot 4×
+// larger and clusters stayed solid. Past the opening view, dots grow with
+// zoom^POINT_ZOOM_GROWTH instead (4× zoom → 2× dots), letting clusters open up.
+const POINT_SIZE_SCALE = 0.65
+const POINT_ZOOM_GROWTH = 0.5
+
 const COSMOS_CONFIG = {
   backgroundColor: '#0b0c10',
   enableSimulation: false,
@@ -94,8 +186,10 @@ const COSMOS_CONFIG = {
   focusedPointRingColor: '#f5c76b',
   pointDefaultColor: '#cbd5e1',
   pointGreyoutOpacity: 0.06,
-  pointOpacity: 0.92,
-  pointSizeScale: 0.85,
+  // Slightly translucent and smaller, so dense clusters show depth where
+  // points overlap instead of filling into solid discs.
+  pointOpacity: 0.78,
+  pointSizeScale: POINT_SIZE_SCALE,
   linkDefaultColor: [148 / 255, 163 / 255, 184 / 255, 0.1] as [number, number, number, number],
   linkOpacity: 1,
   linkVisibilityDistanceRange: [35, 180],
@@ -128,6 +222,7 @@ type FrameControl = { startFrames?: () => void; stopFrames?: () => void; request
 export function CosmosGalaxyView({
   payload,
   selectedNode,
+  personNameMode,
   onNodeClick,
   onBackgroundClick,
 }: CosmosGalaxyViewProps) {
@@ -162,6 +257,19 @@ export function CosmosGalaxyView({
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0)
   const [edgeCutoff, setEdgeCutoff] = useState(0)
   const [labels, setLabels] = useState<GraphLabel[]>([])
+  const communitiesRef = useRef<CommunityLabel[]>([])
+  const featuredRef = useRef<string[]>([])
+  const nameModeRef = useRef(personNameMode)
+  // Zoom level of the opening view; point growth is damped beyond it.
+  const zoomRefRef = useRef<number | null>(null)
+  // Avatars that failed or turned out to be Bangumi's placeholder this session.
+  const missingAvatarsRef = useRef(new Set<string>())
+  const [communityTags, setCommunityTags] = useState<CommunityTag[]>([])
+  const [avatars, setAvatars] = useState<AvatarSpot[]>([])
+  // Avatars are far larger than their dots, so clicks and hovers inside one go
+  // to its person instead of whichever dot cosmos.gl finds nearest.
+  const avatarsRef = useRef<AvatarSpot[]>([])
+  const avatarHoverRef = useRef<string | null>(null)
   const [minDegree, setMinDegree] = useState(0)
   const [edgeBudgetSlider, setEdgeBudgetSlider] = useState(0)
   const [qualityLevel, setQualityLevel] = useState(initialQuality)
@@ -282,7 +390,91 @@ export function CosmosGalaxyView({
     wake()
   }, [applyBaseHighlight, egoLinks, otherEnd, uploadedIndex, wake])
 
+  const applyPointScale = useCallback(() => {
+    const cosmos = cosmosRef.current
+    const reference = zoomRefRef.current
+    if (!cosmos || !reference) return
+    const zoom = cosmos.getZoomLevel()
+    const damping = zoom > reference ? (reference / zoom) ** (1 - POINT_ZOOM_GROWTH) : 1
+    cosmos.setConfigPartial({ pointSizeScale: POINT_SIZE_SCALE * damping })
+  }, [])
+
+  // Avatars and circle labels follow the camera. Circle labels hide while a
+  // person is selected: their collaborator labels take over then.
+  const updateOverlays = useCallback(() => {
+    const cosmos = cosmosRef.current
+    const payload = payloadRef.current
+    const container = containerRef.current
+    if (!cosmos || !payload || !container) return
+    const bounds = container.getBoundingClientRect()
+    const onScreen = (x: number, y: number, margin: number) =>
+      x >= margin && y >= HEADER_HEIGHT && x <= bounds.width - margin && y <= bounds.height - margin
+
+    const relativeZoom = cosmos.getZoomLevel() / (zoomRefRef.current ?? cosmos.getZoomLevel())
+    const growth = relativeZoom > 1 ? relativeZoom ** POINT_ZOOM_GROWTH : relativeZoom
+    const size = Math.round(Math.min(AVATAR_MAX_SIZE, Math.max(AVATAR_MIN_SIZE, AVATAR_SIZE * growth)))
+    const nextAvatars: AvatarSpot[] = []
+    const minGap = (size + 4) ** 2
+    for (const id of featuredRef.current) {
+      const index = payload.nodeIndexById.get(id)
+      if (index === undefined || missingAvatarsRef.current.has(id)) continue
+      const [x, y] = cosmos.spaceToScreenPosition([payload.positions[index * 2], payload.positions[index * 2 + 1]])
+      if (!onScreen(x, y, size / 2)) continue
+      if (nextAvatars.some(a => (a.x - x) ** 2 + (a.y - y) ** 2 < minGap)) continue
+      nextAvatars.push({ id, x, y, size })
+    }
+    avatarsRef.current = nextAvatars
+    setAvatars(nextAvatars)
+
+    const communities = communitiesRef.current
+    if (selectedNodeRef.current || communities.length === 0) {
+      setCommunityTags(current => (current.length > 0 ? [] : current))
+      return
+    }
+    const [originX] = cosmos.spaceToScreenPosition([0, 0])
+    const [unitX] = cosmos.spaceToScreenPosition([1000, 0])
+    const pxPerUnit = Math.abs(unitX - originX) / 1000
+    const radiusOf = new Map<number, number>()
+    const split = new Set<number>()
+    for (const c of communities) {
+      if (c.level !== 0) continue
+      radiusOf.set(c.parent, c.radius)
+      if (c.radius * pxPerUnit >= COMMUNITY_SPLIT_PX) split.add(c.parent)
+    }
+    const shown = communities.filter(c =>
+      c.level === 0
+        ? !split.has(c.parent) && c.radius * pxPerUnit >= COMMUNITY_MIN_PX
+        : split.has(c.parent) && c.radius <= (radiusOf.get(c.parent) ?? 0) * SUB_COMMUNITY_MAX_SPREAD,
+    )
+    // Largest first, so a crowded spot keeps its biggest circle; avatars win over text.
+    shown.sort((a, b) => b.size - a.size)
+    const boxes = nextAvatars.map(a => ({
+      left: a.x - a.size / 2, right: a.x + a.size / 2, top: a.y - a.size / 2, bottom: a.y + a.size / 2,
+    }))
+    const nextTags: CommunityTag[] = []
+    for (const c of shown) {
+      const [x, y] = cosmos.spaceToScreenPosition([c.x, c.y])
+      const title = c.people.slice(0, 2).map(id => payload.nodeLabels.get(id) ?? id).join(' · ')
+      const work = c.works[0] ? displaySubjectName(c.works[0], nameModeRef.current) : ''
+      const decade = c.level === 0 && c.year ? `${Math.floor(c.year / 10) * 10} 年代` : ''
+      const subtitle = [work, decade].filter(Boolean).join(' · ')
+      const width = Math.min(260, Math.max(title.length * 13, subtitle.length * 11) + 12)
+      const box = { left: x - width / 2, right: x + width / 2, top: y - 18, bottom: y + 18 }
+      if (!onScreen(box.left, box.top, 8) || !onScreen(box.right, box.bottom, 8)) continue
+      if (boxes.some(b => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)) continue
+      boxes.push(box)
+      nextTags.push({ id: c.id, level: c.level, title, subtitle, x, y })
+    }
+    setCommunityTags(nextTags)
+  }, [])
+
+  const markAvatarMissing = useCallback((id: string) => {
+    missingAvatarsRef.current.add(id)
+    updateOverlays()
+  }, [updateOverlays])
+
   const updateLabels = useCallback(() => {
+    updateOverlays()
     const cosmos = cosmosRef.current
     const payload = payloadRef.current
     const container = containerRef.current
@@ -307,7 +499,32 @@ export function CosmosGalaxyView({
       next.push({ id, label, x, y, center: order === 0 })
     })
     setLabels(next)
-  }, [])
+  }, [updateOverlays])
+
+  useEffect(() => {
+    let cancelled = false
+    // Circle labels and avatars are extras; the galaxy works without either.
+    loadCommunityLabels()
+      .then(communities => {
+        if (cancelled) return
+        communitiesRef.current = communities
+        updateOverlays()
+      })
+      .catch(() => {})
+    loadFeaturedPeople()
+      .then(people => {
+        if (cancelled) return
+        featuredRef.current = people
+        updateOverlays()
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [updateOverlays])
+
+  useEffect(() => {
+    nameModeRef.current = personNameMode
+    updateOverlays()
+  }, [personNameMode, updateOverlays])
 
   const updateHoverLabelPosition = useCallback((nodeId = hoveredNodeRef.current) => {
     const cosmos = cosmosRef.current
@@ -493,11 +710,13 @@ export function CosmosGalaxyView({
       },
       onBackgroundClick: () => onBackgroundClickRef.current(),
       onPointMouseOver: (index: number) => {
+        if (avatarHoverRef.current) return
         highlightedPointerPositionRef.current = lastPointerPositionRef.current
         showHoverLabel(payloadRef.current?.nodeIds[index] ?? null)
         applyHoverEdgeFocus(index)
       },
       onPointMouseOut: () => {
+        if (avatarHoverRef.current) return
         clearHoverEdgeFocus()
       },
       onMouseMove: (_index: number | undefined, _position: [number, number] | undefined, event: MouseEvent) => {
@@ -512,10 +731,12 @@ export function CosmosGalaxyView({
       },
       onZoomEnd: () => {
         applyEdgeDensityRef.current?.()
+        applyPointScale()
         updateLabels()
         updateHoverLabelPosition()
       },
       onZoom: () => {
+        applyPointScale()
         updateLabels()
         updateHoverLabelPosition()
       },
@@ -527,15 +748,54 @@ export function CosmosGalaxyView({
     container.addEventListener('pointermove', onInput, { passive: true })
     container.addEventListener('pointerdown', onInput, { passive: true })
     container.addEventListener('wheel', onInput, { passive: true })
+
+    // Avatar hit-testing runs in the capture phase, ahead of cosmos.gl's own
+    // canvas listeners; wheel and drag still reach the canvas untouched.
+    const avatarAt = (event: MouseEvent) => {
+      const bounds = container.getBoundingClientRect()
+      const x = event.clientX - bounds.left
+      const y = event.clientY - bounds.top
+      return avatarsRef.current.find(a => (a.x - x) ** 2 + (a.y - y) ** 2 <= (a.size / 2 + 2) ** 2)
+    }
+    let downAt: [number, number] | null = null
+    const onAvatarDown = (event: PointerEvent) => { downAt = [event.clientX, event.clientY] }
+    const onAvatarClick = (event: MouseEvent) => {
+      // A drag that ends over an avatar is a pan, not a click.
+      const moved = downAt ? Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) : 0
+      const spot = moved < 5 ? avatarAt(event) : undefined
+      if (!spot) return
+      event.stopPropagation()
+      onNodeClickRef.current(spot.id)
+    }
+    const onAvatarMove = (event: PointerEvent) => {
+      const spot = event.buttons === 0 ? avatarAt(event) : undefined
+      if (spot?.id === avatarHoverRef.current) return
+      avatarHoverRef.current = spot?.id ?? null
+      container.style.cursor = spot ? 'pointer' : ''
+      const index = spot ? payloadRef.current?.nodeIndexById.get(spot.id) : undefined
+      if (spot && index !== undefined) {
+        highlightedPointerPositionRef.current = null
+        showHoverLabel(spot.id)
+        applyHoverEdgeFocus(index)
+      } else {
+        clearHoverEdgeFocus()
+      }
+    }
+    container.addEventListener('pointerdown', onAvatarDown, { capture: true, passive: true })
+    container.addEventListener('click', onAvatarClick, { capture: true })
+    container.addEventListener('pointermove', onAvatarMove, { capture: true, passive: true })
     return () => {
       container.removeEventListener('pointermove', onInput)
       container.removeEventListener('pointerdown', onInput)
       container.removeEventListener('wheel', onInput)
+      container.removeEventListener('pointerdown', onAvatarDown, { capture: true })
+      container.removeEventListener('click', onAvatarClick, { capture: true })
+      container.removeEventListener('pointermove', onAvatarMove, { capture: true })
       window.clearTimeout(idleTimerRef.current)
       cosmos.destroy()
       cosmosRef.current = null
     }
-  }, [applyHoverEdgeFocus, clearHoverEdgeFocus, showHoverLabel, updateHoverLabelPosition, updateLabels, wake])
+  }, [applyHoverEdgeFocus, applyPointScale, clearHoverEdgeFocus, showHoverLabel, updateHoverLabelPosition, updateLabels, wake])
 
   useEffect(() => {
     const cosmos = cosmosRef.current
@@ -545,15 +805,18 @@ export function CosmosGalaxyView({
     cosmos.setPointPositions(payload.positions)
     cosmos.setPointColors(payload.pointColors)
     cosmos.setPointSizes(payload.pointSizes)
-    if (selectedNodeRef.current) {
-      focusSelection(true)
-    } else {
-      focusSelection(false)
-      window.setTimeout(() => {
-        cosmos.fitView(0, 0.18, false)
-        wake()
-      }, 0)
-    }
+    // The first load always frames the core once, even for a deep-linked
+    // person, so the point-size reference zoom is the same for every visit.
+    window.setTimeout(() => {
+      const firstLoad = zoomRefRef.current === null
+      if (firstLoad || !selectedNodeRef.current) {
+        cosmos.fitViewByPointIndices(coreIndices(payload), 0, CORE_FIT_PADDING, false)
+        if (firstLoad) zoomRefRef.current = cosmos.getZoomLevel()
+        applyPointScale()
+      }
+      focusSelection(Boolean(selectedNodeRef.current))
+      wake()
+    }, 0)
 
     window.requestAnimationFrame(() => {
       recordRuntimeMetric('cosmos-ready', {
@@ -587,6 +850,21 @@ export function CosmosGalaxyView({
       />
 
       <div className="pointer-events-none absolute inset-0 z-10">
+        {avatars.map(spot => (
+          <Avatar key={spot.id} spot={spot} onMissing={markAvatarMissing} />
+        ))}
+        {communityTags.map(tag => (
+          <div
+            key={tag.id}
+            className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-md bg-zinc-950/75 px-2 py-1 text-center leading-snug ring-1 ring-white/[0.06] backdrop-blur-[2px]"
+            style={{ left: tag.x, top: tag.y }}
+          >
+            <div className={tag.level === 0 ? 'text-[13px] font-medium text-zinc-100' : 'text-xs text-zinc-200'}>
+              {tag.title}
+            </div>
+            {tag.subtitle && <div className="text-[11px] text-zinc-400">{tag.subtitle}</div>}
+          </div>
+        ))}
         {labels.map(label => (
           <div
             key={label.id}

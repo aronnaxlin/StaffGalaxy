@@ -172,6 +172,18 @@ def graph_meta(request: Request) -> Response:
     return Response(content=st.graph_meta, media_type="application/json", headers=headers)
 
 
+@app.get("/api/graph/communities")
+def graph_communities() -> Response:
+    """Labelled communities and sub-communities, largest first (see communities.py)."""
+    return Response(content=store().community_labels, media_type="application/json")
+
+
+@app.get("/api/graph/featured")
+def graph_featured() -> Response:
+    """Galaxy node ids shown as avatars, highest priority first (see featured.py)."""
+    return Response(content=store().featured_people, media_type="application/json")
+
+
 @app.get("/api/person/{person_id}/galaxy")
 def person_galaxy(
     person_id: int,

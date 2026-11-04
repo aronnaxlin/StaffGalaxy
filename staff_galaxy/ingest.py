@@ -188,6 +188,9 @@ def person_row(record: dict[str, Any]) -> dict[str, Any]:
         "infobox": str(record.get("infobox") or ""),
         "career_json": json.dumps(career, ensure_ascii=False) if career is not None else "",
         "summary": str(record.get("summary") or ""),
+        # Bangumi community activity on the person page: comment and favorite counts.
+        "comments": int(record.get("comments") or 0),
+        "collects": int(record.get("collects") or 0),
     }
 
 

@@ -20,6 +20,8 @@ from typing import Any, LiteralString
 
 from neo4j import Driver
 
+from .communities import build_community_labels
+from .featured import build_featured_people
 from .graph_buffers import build_graph_buffers
 from .graph_db import connect_driver, connection_uri, latest_data_snapshot, read_one
 from .search_index import extract_person_name_cn, extract_person_name_tw
@@ -71,13 +73,18 @@ def export_store(driver: Driver, out_path: Path) -> ExportStats:
                     extract_person_name_tw(infobox or ""),
                     career_json or "",
                     summary or "",
+                    comments or 0,
+                    collects or 0,
                 )
-                for person_id, name, infobox, career_json, summary in _stream(
+                for person_id, name, infobox, career_json, summary, comments, collects in _stream(
                     driver,
-                    "MATCH (p:Person) RETURN p.id, p.name, p.infobox, p.career_json, p.summary",
+                    """
+                    MATCH (p:Person)
+                    RETURN p.id, p.name, p.infobox, p.career_json, p.summary, p.comments, p.collects
+                    """,
                 )
             ),
-            6,
+            8,
         )
         anime = _insert(
             conn,
@@ -162,6 +169,8 @@ def export_store(driver: Driver, out_path: Path) -> ExportStats:
         }
         buffers = build_graph_buffers(driver)
         graph_meta = json.dumps({**buffers.meta, "snapshot": snapshot}, ensure_ascii=False)
+        community_labels = build_community_labels(conn, buffers.payload, buffers.meta)
+        featured_people = build_featured_people(conn, buffers.meta)
         conn.executemany(
             "INSERT INTO meta VALUES (?, ?)",
             [
@@ -169,6 +178,8 @@ def export_store(driver: Driver, out_path: Path) -> ExportStats:
                 ("graph", json.dumps(graph_info)),
                 ("graph_buffers", buffers.payload),
                 ("graph_meta", graph_meta.encode()),
+                ("community_labels", json.dumps(community_labels, ensure_ascii=False).encode()),
+                ("featured_people", json.dumps(featured_people).encode()),
             ],
         )
 

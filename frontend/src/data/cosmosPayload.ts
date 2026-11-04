@@ -53,8 +53,10 @@ function communityColor(baseValue: number, communityId: number): [number, number
     return [v, v, v, 1]
   }
   const hue = (communityId * 137.508) % 360
-  const lightness = 0.45 + (baseValue / 255) * 0.35
-  const [r, g, b] = hslToRgbNormalized(hue, 0.32, lightness)
+  // Mid-tone, not pastel: near-white hues on the dark background glare, and
+  // overlapping points merged into flat bright blobs.
+  const lightness = 0.38 + (baseValue / 255) * 0.2
+  const [r, g, b] = hslToRgbNormalized(hue, 0.36, lightness)
   return [r, g, b, 1]
 }
 

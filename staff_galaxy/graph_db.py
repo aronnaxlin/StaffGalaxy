@@ -2,7 +2,7 @@
 
 Knowledge-graph schema (see AGENTS.md "Graph Schema"):
 
-    (:Person {id, name, infobox, career_json, summary})
+    (:Person {id, name, infobox, career_json, summary, comments, collects})
     (:Anime {id, name, name_cn, date, year, platform, score, rank, collects})
     (:Position {position_id, cn, en, jp, normalized_role, role_tier, role_weight})
     (:Character {id, name, role, summary})

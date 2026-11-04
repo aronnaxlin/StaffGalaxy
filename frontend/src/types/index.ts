@@ -48,6 +48,21 @@ export interface SubjectNameLike {
   subjectNameCn: string
 }
 
+// A labelled Leiden community (level 0) or sub-community (level 1); x/y/radius
+// are in Cosmos space. people: strongest members first, as galaxy node ids.
+export interface CommunityLabel {
+  level: 0 | 1
+  id: string
+  parent: number
+  size: number
+  x: number
+  y: number
+  radius: number
+  people: string[]
+  works: (SubjectNameLike & { subjectId: string })[]
+  year: number | null
+}
+
 export interface DataSnapshot {
   snapshotId: string
   archiveName: string

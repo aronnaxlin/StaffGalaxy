@@ -50,7 +50,7 @@ docstring is the authoritative schema.
 
 | Element | Purpose |
 |---|---|
-| `(:Person {id, name, infobox, career_json, summary})` | Real individuals (`person.type = 1`) |
+| `(:Person {id, name, infobox, career_json, summary, comments, collects})` | Real individuals (`person.type = 1`) |
 | `(:Anime {id, name, name_cn, date, year, ...})` | Anime works (`subject.type = 2`) |
 | `(:Position {position_id, cn, en, jp, normalized_role, role_tier, role_weight})` | 177 position definitions |
 | `(:Character {id, name, role, summary})` | Voice-acted characters |

@@ -147,6 +147,8 @@ cd frontend && npm run dev
 | `GET /api/manifest` | 数据快照信息和星系规模 |
 | `GET /api/graph/buffers` | 星系的二进制几何数据（位置、大小、社区、边） |
 | `GET /api/graph/meta` | 星系节点的名字和度数 |
+| `GET /api/graph/communities` | 圈子和子圈子的标签：核心人物、代表作、年代、位置 |
+| `GET /api/graph/featured` | 显示头像的人（关联度前 500 ∪ Bangumi 讨论度前 500） |
 | `GET /api/search/persons?q=...` | 搜索人物 |
 | `GET /api/person/{id}/detail` | 人物摘要、常见职位、近期作品 |
 | `GET /api/person/{id}/credits` | 完整履历 |

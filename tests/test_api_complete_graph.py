@@ -6,13 +6,14 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from fastapi import Request
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
-from staff_galaxy import api
+from staff_galaxy import api, communities
 from staff_galaxy.export import export_store
 from staff_galaxy.graph_buffers import HEADER_SIZE, MAGIC, SEGMENT_NAMES, parse_segment_table
 from staff_galaxy.graph_db import clear_database, create_constraints, read, record_data_snapshot, write_batches
@@ -22,7 +23,7 @@ from staff_galaxy.search_index import (
     extract_infobox_search_terms,
     extract_person_name_cn,
 )
-from staff_galaxy.store import Store, set_store
+from staff_galaxy.store import Store, get_store, set_store
 from staff_galaxy.visible_edges import benjamini_hochberg, build_visible_person_edges, fit_bicm
 
 
@@ -234,6 +235,28 @@ class CompleteGraphApiTests(unittest.TestCase):
         pos_offset = table["positions"][0]
         coords = struct.unpack_from(f"<{node_count * 2}f", payload, pos_offset)
         self.assertTrue(all(0.0 <= v <= 8192.0 for v in coords))
+
+    def test_community_labels_name_strongest_members(self) -> None:
+        # The fixture's communities are far below the real thresholds.
+        self.assertEqual(json.loads(api.graph_communities().body), [])
+
+        st = get_store()
+        with patch.object(communities, "TOP_MIN_SIZE", 1):
+            labels = communities.build_community_labels(
+                st.connection(), st.graph_buffers, json.loads(st.graph_meta)
+            )
+        # The fixture puts all four people in community 0; only 1–3 share a
+        # backbone edge, so they lead by in-circle strength.
+        (label,) = labels
+        self.assertEqual((label["level"], label["size"]), (0, 4))
+        self.assertEqual(set(label["people"][:2]), {"1", "3"})
+        self.assertTrue(all(0.0 <= label[axis] <= 8192.0 for axis in ("x", "y")))
+
+    def test_featured_people_cover_the_strongest_galaxy_members(self) -> None:
+        # Four galaxy members fit well inside the top-500 strength list, in meta order.
+        meta = json.loads(api.graph_meta(_get_request()).body)
+        featured = json.loads(api.graph_featured().body)
+        self.assertEqual(featured, [node["id"] for node in meta["nodes"]])
 
     def test_graph_buffers_etag_revalidation(self) -> None:
         first = api.graph_buffers(_get_request())

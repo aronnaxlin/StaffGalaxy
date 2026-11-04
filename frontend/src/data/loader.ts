@@ -8,6 +8,7 @@ import type {
   PersonCreditsResponse,
   PersonKnowledgeGraph,
   Manifest,
+  CommunityLabel,
 } from '../types'
 import { recordRuntimeMetric } from './runtimeMetrics'
 import { withNsfw } from './nsfw'
@@ -47,6 +48,15 @@ export async function loadManifest(): Promise<Manifest> {
   if (manifestCache) return manifestCache
   manifestCache = await fetchJson<Manifest>('/api/manifest')
   return manifestCache
+}
+
+export async function loadCommunityLabels(): Promise<CommunityLabel[]> {
+  return fetchJson<CommunityLabel[]>('/api/graph/communities')
+}
+
+// Galaxy node ids drawn as avatars, highest priority first.
+export async function loadFeaturedPeople(): Promise<string[]> {
+  return fetchJson<string[]>('/api/graph/featured')
 }
 
 export async function loadSearchIndex(): Promise<SearchEntry[]> {
