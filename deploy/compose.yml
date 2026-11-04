@@ -1,0 +1,19 @@
+# Runs on the host next to Nginx Proxy Manager, which reaches it by container
+# name on its network; no port is published.
+#   /opt/staffgalaxy/compose.yml
+#   /opt/staffgalaxy/data/staff_galaxy.sqlite   (from `python -m staff_galaxy.export`)
+services:
+  staffgalaxy:
+    image: staffgalaxy:latest
+    container_name: staffgalaxy
+    restart: unless-stopped
+    volumes:
+      - ./data:/data:ro
+    mem_limit: 1g
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: nginx-proxy-manager_default
+    external: true

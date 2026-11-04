@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 from fastapi import Request
@@ -11,14 +13,16 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
 from staff_galaxy import api
+from staff_galaxy.export import export_store
 from staff_galaxy.graph_buffers import HEADER_SIZE, MAGIC, SEGMENT_NAMES, parse_segment_table
-from staff_galaxy.graph_db import clear_database, create_constraints, read, record_data_snapshot, set_driver, write_batches
+from staff_galaxy.graph_db import clear_database, create_constraints, read, record_data_snapshot, write_batches
 from staff_galaxy.ingest import credit_row, write_anime, write_credits, write_persons, write_positions
 from staff_galaxy.search_index import (
     build_person_search_terms,
     extract_infobox_search_terms,
     extract_person_name_cn,
 )
+from staff_galaxy.store import Store, set_store
 from staff_galaxy.visible_edges import benjamini_hochberg, build_visible_person_edges, fit_bicm
 
 
@@ -32,7 +36,7 @@ def _get_request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
 
 
 def setUpModule() -> None:
-    global _driver
+    global _driver, _store_dir
     if TEST_URI == os.environ.get("NEO4J_URI"):
         raise RuntimeError("NEO4J_TEST_URI must not point at the main graph; the tests wipe it")
     _driver = GraphDatabase.driver(TEST_URI, auth=TEST_AUTH)
@@ -42,11 +46,16 @@ def setUpModule() -> None:
         _driver.close()
         raise unittest.SkipTest(f"Neo4j test instance not reachable at {TEST_URI}") from exc
     _build_graph(_driver)
-    set_driver(_driver)
+    # The API serves the exported store, never Neo4j: export the fixture graph.
+    _store_dir = tempfile.TemporaryDirectory()
+    store_path = Path(_store_dir.name) / "staff_galaxy.sqlite"
+    export_store(_driver, store_path)
+    set_store(Store(store_path))
 
 
 def tearDownModule() -> None:
-    set_driver(None)
+    set_store(None)
+    _store_dir.cleanup()
     _driver.close()
 
 
@@ -74,6 +83,7 @@ def _build_graph(driver) -> None:
             {"id": 10, "name": "Hidden Work", "name_cn": "隐藏作品", "date": "2020-01-01", "year": 2020},
             {"id": 11, "name": "Visible Work", "name_cn": "可见作品", "date": "2021-01-01", "year": 2021},
             {"id": 12, "name": "Hidden Bridge Work", "name_cn": "隐藏桥接作品", "date": "2022-01-01", "year": 2022},
+            {"id": 13, "name": "Adult Work", "name_cn": "成人作品", "date": "2023-01-01", "year": 2023, "nsfw": True},
         ],
     )
     positions = {
@@ -92,6 +102,7 @@ def _build_graph(driver) -> None:
                 (11, 3, 2),
                 (12, 3, 1),
                 (12, 4, 1),
+                (13, 1, 2),
             ]
         ],
     )
@@ -300,6 +311,23 @@ class CompleteGraphApiTests(unittest.TestCase):
         self.assertEqual(credits["credits"][1]["rawPosition"], "原画")
         self.assertEqual(credits["credits"][1]["normalizedRole"], "key_animation")
         self.assertEqual(credits["source"]["snapshot"]["archiveName"], "dump-test.zip")
+
+
+    def test_nsfw_works_are_hidden_unless_requested(self) -> None:
+        self.assertEqual(api.person_detail(1)["stats"]["animeSubjectCount"], 2)
+        self.assertEqual(api.person_detail(1, nsfw=True)["stats"]["animeSubjectCount"], 3)
+        self.assertEqual(api.person_detail(1, nsfw=True)["recentWorks"][0]["subjectId"], 13)
+
+        self.assertEqual(api.person_credits(1)["total"], 2)
+        self.assertNotIn(13, [row["subjectId"] for row in api.person_credits(1)["credits"]])
+        self.assertEqual(api.person_credits(1, nsfw=True)["total"], 3)
+
+        kg_keys = {node["key"] for node in api.person_knowledge_graph(1, people=5, works=5)["nodes"]}
+        self.assertNotIn("a:13", kg_keys)
+        self.assertIn(
+            "a:13",
+            {node["key"] for node in api.person_knowledge_graph(1, people=5, works=5, nsfw=True)["nodes"]},
+        )
 
 
 class BackboneStatisticsTests(unittest.TestCase):

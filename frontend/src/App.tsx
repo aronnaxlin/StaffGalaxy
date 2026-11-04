@@ -6,6 +6,7 @@ import { Info } from 'lucide-react'
 import { SearchBar } from './components/SearchBar'
 import { PersonSidebar } from './components/PersonSidebar'
 import { NameModeToggle } from './components/NameModeToggle'
+import { NsfwToggle } from './components/NsfwToggle'
 import { iconButton, mutedLink, panelShell, segmentedButtonClass, segmentedGroupClass } from './components/ui'
 import { getInitialPersonNameMode, PERSON_NAME_MODE_KEY } from './data/personNames'
 import { buildGlobalPayload } from './data/cosmosPayload'
@@ -43,7 +44,7 @@ function DataSourceInfo({ manifest }: { manifest: Manifest | null }) {
         <Popover.Content align="end" sideOffset={8} className={`${panelShell} z-[60] w-80 space-y-2 p-3 text-sm leading-relaxed text-zinc-300`}>
           <div className="font-medium text-zinc-100">数据来源</div>
           <p>
-            Bangumi Archive 快照{snapshot ? `（${snapshot.archiveCreatedAt?.slice(0, 10)}）` : ''}，存放在 Neo4j 知识图谱中。
+            Bangumi Archive 快照{snapshot ? `（${snapshot.archiveCreatedAt?.slice(0, 10)}）` : ''}，由 Neo4j 知识图谱构建。NSFW 作品默认隐藏，星系布局与骨干连线仍基于全部作品。
           </p>
           <p className="text-zinc-400">
             人物、职位记录由社区维护，可能有缺失、滞后或同名歧义；连线只表示快照中能查到的共同动画职位。
@@ -275,6 +276,7 @@ export default function App() {
               </button>
             </div>
             <NameModeToggle mode={personNameMode} onChange={setPersonNameMode} />
+            <NsfwToggle />
             <DataSourceInfo manifest={manifest} />
           </div>
         </header>

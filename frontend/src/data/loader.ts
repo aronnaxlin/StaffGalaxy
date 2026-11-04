@@ -10,6 +10,7 @@ import type {
   Manifest,
 } from '../types'
 import { recordRuntimeMetric } from './runtimeMetrics'
+import { withNsfw } from './nsfw'
 
 interface RawEdge { source: string; target: string; w: number; collaborationScore?: number; firstYear?: number; lastYear?: number; selectionReason?: string }
 
@@ -74,7 +75,7 @@ export async function loadPersonGalaxy(
   if (cached) return cached
 
   const data = await fetchJson<PersonGalaxyResponse>(
-    `/api/person/${personId}/galaxy?limit=${limit}&min_shared=${minShared}`,
+    withNsfw(`/api/person/${personId}/galaxy?limit=${limit}&min_shared=${minShared}`),
   )
   const levelData: LevelData = {
     nodes: data.nodes,
@@ -98,7 +99,7 @@ export async function loadPersonKnowledgeGraph(personId: string): Promise<Person
   const cached = knowledgeGraphCache.get(personId)
   if (cached) return cached
 
-  const data = await fetchJson<PersonKnowledgeGraph>(`/api/person/${personId}/knowledge-graph`)
+  const data = await fetchJson<PersonKnowledgeGraph>(withNsfw(`/api/person/${personId}/knowledge-graph`))
   knowledgeGraphCache.set(personId, data)
   return data
 }
@@ -109,7 +110,7 @@ export async function loadPersonDetail(personId: string): Promise<PersonDetail> 
   const cached = personDetailCache.get(personId)
   if (cached) return cached
 
-  const data = await fetchJson<PersonDetail>(`/api/person/${personId}/detail`)
+  const data = await fetchJson<PersonDetail>(withNsfw(`/api/person/${personId}/detail`))
   personDetailCache.set(personId, data)
   return data
 }
@@ -120,13 +121,13 @@ export async function loadPersonCredits(personId: string): Promise<PersonCredits
   const cached = personCreditsCache.get(personId)
   if (cached) return cached
 
-  const data = await fetchJson<PersonCreditsResponse>(`/api/person/${personId}/credits?limit=2000`)
+  const data = await fetchJson<PersonCreditsResponse>(withNsfw(`/api/person/${personId}/credits?limit=2000`))
   personCreditsCache.set(personId, data)
   return data
 }
 
 export async function loadShortestPath(personA: string, personB: string): Promise<PathResult> {
-  return fetchJson<PathResult>(`/api/path/${personA}/${personB}`)
+  return fetchJson<PathResult>(withNsfw(`/api/path/${personA}/${personB}`))
 }
 
 const collabCache = new Map<string, CollaborationDetail>()
@@ -160,7 +161,7 @@ export async function loadCollaborationDetail(personA: string, personB: string):
   const cached = collabCache.get(key)
   if (cached) return orientCollaborationDetail(cached, personA, personB)
 
-  const data = await fetchJson<CollaborationDetail>(`/api/collaboration/${personA}/${personB}`)
+  const data = await fetchJson<CollaborationDetail>(withNsfw(`/api/collaboration/${personA}/${personB}`))
   collabCache.set(key, data)
   return orientCollaborationDetail(data, personA, personB)
 }

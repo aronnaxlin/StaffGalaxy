@@ -1,5 +1,5 @@
 # Local raw data snapshots and cloned upstream references.
-data/raw/
+data/raw
 data/processed/
 
 # Runtime and generated local files.
@@ -37,3 +37,6 @@ test-results/
 
 # CLI output (data audit report).
 reports/
+
+# Deploy store exported from Neo4j (staff_galaxy.export).
+data/deploy/

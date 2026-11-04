@@ -92,10 +92,18 @@ curl -L -o data/raw/bangumi-common/subject_staffs.yml \
 .venv/bin/python -m staff_galaxy.cli --derived-only
 ```
 
-### 5. 运行
+### 5. 导出部署用的数据库
 
 ```bash
-# 后端（需要 Neo4j 已启动）
+.venv/bin/python -m staff_galaxy.export
+```
+
+把 Neo4j 里的图谱导出成单个 SQLite 文件 `data/deploy/staff_galaxy.sqlite`（约 150 MB）。后端只读这个文件，运行时不需要 Neo4j。每次重新建图后都要再导出一次。
+
+### 6. 运行
+
+```bash
+# 后端（读取上一步导出的 SQLite 文件）
 .venv/bin/uvicorn staff_galaxy.api:app --host 127.0.0.1 --port 8000
 
 # 前端（另开一个终端）

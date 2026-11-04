@@ -175,6 +175,8 @@ def anime_row(record: dict[str, Any]) -> dict[str, Any]:
         # Bangumi users who collected it in any state: a popularity measure,
         # unlike rank, which orders by rating.
         "collects": sum(int(v or 0) for v in (record.get("favorite") or {}).values()),
+        # Kept in the graph; the public site hides these works unless asked.
+        "nsfw": bool(record.get("nsfw")),
     }
 
 

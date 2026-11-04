@@ -31,8 +31,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    driver = connect_driver()  # loads .env, which may set NEO4J_URI
     print(f"Writing Neo4j graph: {connection_uri()}", flush=True)
-    driver = connect_driver()
     try:
         driver.verify_connectivity()
         if args.derived_only:

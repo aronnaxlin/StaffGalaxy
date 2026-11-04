@@ -14,18 +14,30 @@ Core product semantics:
 
 Only `subject.type = 2` (anime) is in scope. Companies, groups, and non-anime works are excluded from the default graph.
 
+NSFW anime (`subject.nsfw` in the Archive) stay in the graph as `Anime.nsfw =
+true`, so the galaxy layout and backbone edges are built from every work. The
+API hides them from all evidence (person detail, credits, knowledge graph, pair
+works, path traversal) unless a request passes `nsfw=true`; the frontend's
+NSFW toggle (`data/nsfw.ts`, off by default, per browser) adds that parameter.
+
 ## Current Architecture
 
 ```
 Bangumi Archive zip files
   → Python ingest pipeline (staff_galaxy/ingest.py, streams the zip)
-  → Neo4j 5 knowledge graph (Docker, docker-compose.yml)
-  → FastAPI backend  (staff_galaxy/api.py, Cypher)
+  → Neo4j 5 knowledge graph (Docker, docker-compose.yml; build time only)
+  → SQLite deploy store (staff_galaxy/export.py → data/deploy/staff_galaxy.sqlite)
+  → FastAPI backend  (staff_galaxy/api.py + store.py, SQL + in-memory CSR)
   → React 19 + TypeScript + Tailwind CSS 4 + Vite
   → Cosmos.gl WebGL renderer
 ```
 
-There is no static JSON export pipeline. The frontend talks to the FastAPI backend directly over HTTP.
+The API never connects to Neo4j. `staff_galaxy.export` flattens the graph into
+one SQLite file (tables in `store.py` `SCHEMA`; galaxy buffers and meta JSON are
+stored as blobs in its `meta` table), so a deploy is a single file plus the
+code. Re-export after every `cli` run. The frontend talks to the FastAPI backend
+directly over HTTP. Every GET response carries `Cache-Control` for a CDN: purge
+the CDN cache when a new store is deployed.
 
 ## Graph Schema
 
@@ -96,7 +108,7 @@ Base URL: `http://localhost:8000`
 | `GET /api/person/{id}/knowledge-graph?people=10&works=14` | Local `(:Person)-[:CREDITED]->(:Anime)` subgraph: strongest collaborators plus the works linking them, links labelled with roles |
 | `GET /api/search/persons?q=...&limit=...` | Unified search (name, CJK variants, Bangumi ID) |
 | `GET /api/collaboration/{a}/{b}` | Shared works with roles, years, and scores |
-| `GET /api/path/{a}/{b}?max_paths=5` | Shortest path(s) between two people (Cypher `ALL SHORTEST`) |
+| `GET /api/path/{a}/{b}?max_paths=5` | Shortest path(s) between two people (BFS over the in-memory Person–Anime CSR) |
 
 ### Search features
 
@@ -112,7 +124,7 @@ Returns per-edge metrics plus all shared works with individual role lists. Front
 
 ### Path finding
 
-Cypher `ALL SHORTEST` over `(:Person)-[:CREDITED]-(:Anime)` (one collaboration hop = two relationships) enumerates shortest paths in the complete graph. Paths that differ only in the linking anime collapse to one person sequence, ranked by weakest step then total score. Rendered in `ConstellationView` as colored SVG Bezier curves across depth-layered node columns.
+`store.py` keeps the Person–Anime incidence matrix in memory as CSR (data = the person's highest role weight on the anime). A scipy BFS from both endpoints (one collaboration hop = two edges) marks the people on shortest paths; a DFS enumerates distinct person sequences through those layers, expanding the strongest direct link first, capped at `PATH_ENUMERATION_LIMIT`. Sequences are ranked by weakest step then total score. (The Neo4j version capped *raw* `ALL SHORTEST` paths in arbitrary order and could miss the strongest paths.) Rendered in `ConstellationView` as colored SVG Bezier curves across depth-layered node columns.
 
 ## Frontend
 
@@ -264,7 +276,13 @@ docker compose --profile test up -d neo4j-test
 .venv/bin/python -m unittest -v tests.test_api_complete_graph
 ```
 
-### Start backend
+### Export the deploy store (needs Neo4j running; ~20 s, ~150 MB)
+
+```bash
+.venv/bin/python -m staff_galaxy.export
+```
+
+### Start backend (reads data/deploy/staff_galaxy.sqlite, or $STAFF_GALAXY_STORE)
 
 ```bash
 .venv/bin/uvicorn staff_galaxy.api:app --reload --port 8000
@@ -283,6 +301,33 @@ cd frontend && npm run build
 # or just type-checking:
 cd frontend && npx tsc --noEmit
 ```
+
+## Deployment (gc, Tokyo)
+
+One container (`deploy/Dockerfile`) serves `/api` and the Vite build
+(`STAFF_GALAXY_STATIC`); the SQLite store is mounted read-only from
+`/opt/staffgalaxy/data/`. Nginx Proxy Manager on the same host reaches it by
+container name on `nginx-proxy-manager_default` (no published port), terminates
+TLS, and rate-limits per IP (`limit_req` zone `staffgalaxy` in NPM's
+`custom/http_top.conf`).
+
+```bash
+# Code: upload tracked + new files, build on gc (keeps the image off a metered link)
+git ls-files -co --exclude-standard | tar -czf /tmp/src.tgz -T -
+scp /tmp/src.tgz gc:/opt/staffgalaxy/ && ssh gc 'cd /opt/staffgalaxy && rm -rf src && mkdir src \
+  && tar -xzf src.tgz -C src && docker build -f src/deploy/Dockerfile -t staffgalaxy src \
+  && docker compose up -d'
+
+# Data: after cli + export, ship the store compressed and restart
+zstd -19 data/deploy/staff_galaxy.sqlite -o /tmp/sg.sqlite.zst
+scp /tmp/sg.sqlite.zst gc:/opt/staffgalaxy/ && ssh gc 'cd /opt/staffgalaxy \
+  && zstd -df sg.sqlite.zst -o data/staff_galaxy.sqlite.new \
+  && mv data/staff_galaxy.sqlite.new data/staff_galaxy.sqlite && docker compose restart'
+```
+
+This branch builds its graph in its own Neo4j container
+(`staff-galaxy-neo4j-deploy`, bolt `localhost:7697`, data in
+`data/processed/neo4j-deploy/`), so `main`'s research graph is never touched.
 
 ## Local Data Layout
 

@@ -8,7 +8,10 @@ Read [AGENTS.md](AGENTS.md) before working on this project.
 # Graph database (Neo4j, Docker; credentials in .env)
 docker compose up -d neo4j
 
-# Backend
+# Deploy store (re-run after every graph build)
+.venv/bin/python -m staff_galaxy.export
+
+# Backend (SQLite store only; no Neo4j at runtime)
 .venv/bin/uvicorn staff_galaxy.api:app --reload --port 8000
 
 # Frontend
@@ -18,7 +21,7 @@ cd frontend && npm run dev
 ## Project at a glance
 
 - **Product**: Anime staff collaboration graph (nodes=people, edges=shared anime credits)
-- **Backend**: FastAPI + Neo4j (Cypher), port 8000
+- **Backend**: FastAPI over a SQLite store exported from Neo4j, port 8000
 - **Frontend**: React 19 + TypeScript + Tailwind CSS 4 + Vite + Cosmos.gl, port 5173
 - **Database**: Neo4j 5 knowledge graph at `bolt://localhost:7687` (Browser on 7474), data in `data/processed/neo4j/` (git-ignored, built from Bangumi Archive)
 - **Data source**: [Bangumi Archive](https://github.com/bangumi/Archive) dump zips
@@ -31,6 +34,7 @@ cd frontend && npm run dev
 | `staff_galaxy/roles.py` | Position tier/weight definitions (S/A/B/C/D/E/F, 163 positions) |
 | `staff_galaxy/visible_edges.py` | Galaxy `COLLAB` edge builder |
 | `staff_galaxy/graph_nodes.py` | `GalaxyNode` membership/size builder |
+| `staff_galaxy/export.py` / `store.py` | Neo4j → SQLite deploy store / its read side (incl. path CSR) |
 | `staff_galaxy/graph_db.py` | Neo4j connection, graph schema, constraints, write helpers |
 | `frontend/src/components/CosmosGalaxyView.tsx` | WebGL galaxy renderer |
 | `frontend/src/components/ConstellationView.tsx` | Path-finding SVG view |
@@ -41,4 +45,4 @@ cd frontend && npm run dev
 
 ## Active branch
 
-Check `git branch --show-current`. Current work is on `main`.
+Check `git branch --show-current`. This worktree is the `deploy-sqlite` branch (public deployment); `main` keeps the Neo4j-backed API for research demos.
