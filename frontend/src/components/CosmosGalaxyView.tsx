@@ -68,6 +68,12 @@ const HEADER_HEIGHT = 76
 const CORE_DISTANCE_QUANTILE = 0.8
 const CORE_FIT_PADDING = 0.04
 
+// Flat [x0, y0, ...] for fitViewByPointPositions: unlike fitViewByPointIndices
+// it needs no GPU read-back, which is not ready yet on first load.
+function corePositions(payload: CosmosPayload): number[] {
+  return coreIndices(payload).flatMap(i => [payload.positions[i * 2], payload.positions[i * 2 + 1]])
+}
+
 function coreIndices(payload: CosmosPayload): number[] {
   const connected: number[] = []
   for (let i = 0; i < payload.degrees.length; i += 1) {
@@ -260,8 +266,13 @@ export function CosmosGalaxyView({
   const communitiesRef = useRef<CommunityLabel[]>([])
   const featuredRef = useRef<string[]>([])
   const nameModeRef = useRef(personNameMode)
-  // Zoom level of the opening view; point growth is damped beyond it.
+  // Zoom level of the opening view; point growth is damped beyond it. cosmos.gl
+  // may defer the opening fit until its WebGL device is ready, so the level is
+  // captured from the first zoom event after the fit, not read right after it.
   const zoomRefRef = useRef<number | null>(null)
+  const awaitingReferenceRef = useRef(false)
+  const pendingFocusRef = useRef(false)
+  const focusSelectionRef = useRef<((animate: boolean) => void) | null>(null)
   // Avatars that failed or turned out to be Bangumi's placeholder this session.
   const missingAvatarsRef = useRef(new Set<string>())
   const [communityTags, setCommunityTags] = useState<CommunityTag[]>([])
@@ -392,9 +403,19 @@ export function CosmosGalaxyView({
 
   const applyPointScale = useCallback(() => {
     const cosmos = cosmosRef.current
-    const reference = zoomRefRef.current
-    if (!cosmos || !reference) return
+    if (!cosmos) return
     const zoom = cosmos.getZoomLevel()
+    if (awaitingReferenceRef.current && Number.isFinite(zoom) && zoom > 0) {
+      awaitingReferenceRef.current = false
+      zoomRefRef.current = zoom
+      if (pendingFocusRef.current) {
+        pendingFocusRef.current = false
+        // Leave the zoom event first: the glide starts its own camera move.
+        window.setTimeout(() => focusSelectionRef.current?.(true), 0)
+      }
+    }
+    const reference = zoomRefRef.current
+    if (!reference || !Number.isFinite(zoom)) return
     const damping = zoom > reference ? (reference / zoom) ** (1 - POINT_ZOOM_GROWTH) : 1
     cosmos.setConfigPartial({ pointSizeScale: POINT_SIZE_SCALE * damping })
   }, [])
@@ -410,6 +431,50 @@ export function CosmosGalaxyView({
     const onScreen = (x: number, y: number, margin: number) =>
       x >= margin && y >= HEADER_HEIGHT && x <= bounds.width - margin && y <= bounds.height - margin
 
+    type Box = { left: number; right: number; top: number; bottom: number }
+    const overlaps = (box: Box, boxes: Box[]) =>
+      boxes.some(b => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)
+
+    // Circle labels are placed first: there are few of them and they say the
+    // most, while avatars cluster exactly at circle centers and would crowd
+    // every label out. Avatars then fill the space the labels leave.
+    const boxes: Box[] = []
+    const nextTags: CommunityTag[] = []
+    const communities = communitiesRef.current
+    if (!selectedNodeRef.current && communities.length > 0) {
+      const [originX] = cosmos.spaceToScreenPosition([0, 0])
+      const [unitX] = cosmos.spaceToScreenPosition([1000, 0])
+      const pxPerUnit = Math.abs(unitX - originX) / 1000
+      const radiusOf = new Map<number, number>()
+      const split = new Set<number>()
+      for (const c of communities) {
+        if (c.level !== 0) continue
+        radiusOf.set(c.parent, c.radius)
+        if (c.radius * pxPerUnit >= COMMUNITY_SPLIT_PX) split.add(c.parent)
+      }
+      const shown = communities.filter(c =>
+        c.level === 0
+          ? !split.has(c.parent) && c.radius * pxPerUnit >= COMMUNITY_MIN_PX
+          : split.has(c.parent) && c.radius <= (radiusOf.get(c.parent) ?? 0) * SUB_COMMUNITY_MAX_SPREAD,
+      )
+      // Largest first, so a crowded spot keeps its biggest circle.
+      shown.sort((a, b) => b.size - a.size)
+      for (const c of shown) {
+        const [x, y] = cosmos.spaceToScreenPosition([c.x, c.y])
+        const title = c.people.slice(0, 2).map(id => payload.nodeLabels.get(id) ?? id).join(' · ')
+        const work = c.works[0] ? displaySubjectName(c.works[0], nameModeRef.current) : ''
+        const decade = c.level === 0 && c.year ? `${Math.floor(c.year / 10) * 10} 年代` : ''
+        const subtitle = [work, decade].filter(Boolean).join(' · ')
+        const width = Math.min(260, Math.max(title.length * 13, subtitle.length * 11) + 12)
+        const box = { left: x - width / 2, right: x + width / 2, top: y - 18, bottom: y + 18 }
+        if (!onScreen(box.left, box.top, 8) || !onScreen(box.right, box.bottom, 8)) continue
+        if (overlaps(box, boxes)) continue
+        boxes.push(box)
+        nextTags.push({ id: c.id, level: c.level, title, subtitle, x, y })
+      }
+    }
+    setCommunityTags(current => (current.length === 0 && nextTags.length === 0 ? current : nextTags))
+
     const relativeZoom = cosmos.getZoomLevel() / (zoomRefRef.current ?? cosmos.getZoomLevel())
     const growth = relativeZoom > 1 ? relativeZoom ** POINT_ZOOM_GROWTH : relativeZoom
     const size = Math.round(Math.min(AVATAR_MAX_SIZE, Math.max(AVATAR_MIN_SIZE, AVATAR_SIZE * growth)))
@@ -421,51 +486,11 @@ export function CosmosGalaxyView({
       const [x, y] = cosmos.spaceToScreenPosition([payload.positions[index * 2], payload.positions[index * 2 + 1]])
       if (!onScreen(x, y, size / 2)) continue
       if (nextAvatars.some(a => (a.x - x) ** 2 + (a.y - y) ** 2 < minGap)) continue
+      if (overlaps({ left: x - size / 2, right: x + size / 2, top: y - size / 2, bottom: y + size / 2 }, boxes)) continue
       nextAvatars.push({ id, x, y, size })
     }
     avatarsRef.current = nextAvatars
     setAvatars(nextAvatars)
-
-    const communities = communitiesRef.current
-    if (selectedNodeRef.current || communities.length === 0) {
-      setCommunityTags(current => (current.length > 0 ? [] : current))
-      return
-    }
-    const [originX] = cosmos.spaceToScreenPosition([0, 0])
-    const [unitX] = cosmos.spaceToScreenPosition([1000, 0])
-    const pxPerUnit = Math.abs(unitX - originX) / 1000
-    const radiusOf = new Map<number, number>()
-    const split = new Set<number>()
-    for (const c of communities) {
-      if (c.level !== 0) continue
-      radiusOf.set(c.parent, c.radius)
-      if (c.radius * pxPerUnit >= COMMUNITY_SPLIT_PX) split.add(c.parent)
-    }
-    const shown = communities.filter(c =>
-      c.level === 0
-        ? !split.has(c.parent) && c.radius * pxPerUnit >= COMMUNITY_MIN_PX
-        : split.has(c.parent) && c.radius <= (radiusOf.get(c.parent) ?? 0) * SUB_COMMUNITY_MAX_SPREAD,
-    )
-    // Largest first, so a crowded spot keeps its biggest circle; avatars win over text.
-    shown.sort((a, b) => b.size - a.size)
-    const boxes = nextAvatars.map(a => ({
-      left: a.x - a.size / 2, right: a.x + a.size / 2, top: a.y - a.size / 2, bottom: a.y + a.size / 2,
-    }))
-    const nextTags: CommunityTag[] = []
-    for (const c of shown) {
-      const [x, y] = cosmos.spaceToScreenPosition([c.x, c.y])
-      const title = c.people.slice(0, 2).map(id => payload.nodeLabels.get(id) ?? id).join(' · ')
-      const work = c.works[0] ? displaySubjectName(c.works[0], nameModeRef.current) : ''
-      const decade = c.level === 0 && c.year ? `${Math.floor(c.year / 10) * 10} 年代` : ''
-      const subtitle = [work, decade].filter(Boolean).join(' · ')
-      const width = Math.min(260, Math.max(title.length * 13, subtitle.length * 11) + 12)
-      const box = { left: x - width / 2, right: x + width / 2, top: y - 18, bottom: y + 18 }
-      if (!onScreen(box.left, box.top, 8) || !onScreen(box.right, box.bottom, 8)) continue
-      if (boxes.some(b => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)) continue
-      boxes.push(box)
-      nextTags.push({ id: c.id, level: c.level, title, subtitle, x, y })
-    }
-    setCommunityTags(nextTags)
   }, [])
 
   const markAvatarMissing = useCallback((id: string) => {
@@ -598,6 +623,10 @@ export function CosmosGalaxyView({
   useEffect(() => {
     applyEdgeDensityRef.current = () => applyEdgeDensity()
   }, [applyEdgeDensity])
+
+  useEffect(() => {
+    focusSelectionRef.current = focusSelection
+  }, [focusSelection])
 
   const applyQuality = useCallback((level: number) => {
     qualityRef.current = level
@@ -807,14 +836,26 @@ export function CosmosGalaxyView({
     cosmos.setPointSizes(payload.pointSizes)
     // The first load always frames the core once, even for a deep-linked
     // person, so the point-size reference zoom is the same for every visit.
+    // A deep link glides to its person only once that fit has landed
+    // (applyPointScale), or after a fallback delay if no zoom event comes.
+    let fallback = 0
     window.setTimeout(() => {
       const firstLoad = zoomRefRef.current === null
       if (firstLoad || !selectedNodeRef.current) {
-        cosmos.fitViewByPointIndices(coreIndices(payload), 0, CORE_FIT_PADDING, false)
-        if (firstLoad) zoomRefRef.current = cosmos.getZoomLevel()
+        awaitingReferenceRef.current = firstLoad
+        pendingFocusRef.current = firstLoad && Boolean(selectedNodeRef.current)
+        cosmos.fitViewByPointPositions(corePositions(payload), 0, CORE_FIT_PADDING, false)
         applyPointScale()
       }
-      focusSelection(Boolean(selectedNodeRef.current))
+      if (pendingFocusRef.current) {
+        fallback = window.setTimeout(() => {
+          if (!pendingFocusRef.current) return
+          pendingFocusRef.current = false
+          focusSelection(true)
+        }, 1500)
+      } else {
+        focusSelection(Boolean(selectedNodeRef.current))
+      }
       wake()
     }, 0)
 
@@ -827,6 +868,7 @@ export function CosmosGalaxyView({
         edgeCutoff: edgeCountRef.current > 0 ? payload.sortedSharedCounts[edgeCountRef.current - 1] : 0,
       })
     })
+    return () => window.clearTimeout(fallback)
     // focusSelection is stable for a given payload; selection changes are handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payload])
