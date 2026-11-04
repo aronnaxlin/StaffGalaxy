@@ -304,12 +304,22 @@ cd frontend && npx tsc --noEmit
 
 ## Deployment (gc, Tokyo)
 
+Live at https://sg.aronnax.site (Cloudflare-proxied; the old
+`staffgalaxy.gc.aronnax.site` 301s to it, path kept).
+
 One container (`deploy/Dockerfile`) serves `/api` and the Vite build
 (`STAFF_GALAXY_STATIC`); the SQLite store is mounted read-only from
 `/opt/staffgalaxy/data/`. Nginx Proxy Manager on the same host reaches it by
 container name on `nginx-proxy-manager_default` (no published port), terminates
-TLS, and rate-limits per IP (`limit_req` zone `staffgalaxy` in NPM's
-`custom/http_top.conf`).
+TLS, and rate-limits per client (`limit_req` zone `staffgalaxy` in NPM's
+`custom/http_top.conf`). The proxy host's advanced config sets
+`real_ip_header CF-Connecting-IP`; without it every visitor would share
+Cloudflare's few edge IPs and the rate limit would hit everyone.
+
+A Cloudflare cache rule makes `/api/*` cacheable and respects the API's
+`s-maxage=86400`, so the edge keeps API responses for a day. After shipping a
+new store, purge the zone cache (or at least `/api/*`) or visitors keep getting
+the old snapshot's manifest and data.
 
 ```bash
 # Code: upload tracked + new files, build on gc (keeps the image off a metered link)

@@ -4,6 +4,8 @@
 
 数据来自 [Bangumi](https://bgm.tv) 社区维护的 [Bangumi Archive](https://github.com/bangumi/Archive)，存放在 Neo4j 知识图谱里。
 
+在线访问：<https://sg.aronnax.site>
+
 ![星系全景：23,245 位制作人员、107,489 条合作关系，颜色是自动分出的合作圈子](.github/galaxy.jpeg)
 
 ![以宫崎骏为中心：左边在星系中定位，右边是他的局部知识图谱和三元组](.github/person.jpeg)
